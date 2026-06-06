@@ -1,7 +1,17 @@
-import { existsSync, mkdirSync, copyFileSync, symlinkSync, rmSync, lstatSync, unlinkSync, readdirSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { scanRepo } from '../project-context/repo-scanner';
+import { cleanupIsolationArtifacts } from './process-isolation';
 
 export class Sandbox {
   readonly sandboxPath: string;
@@ -24,7 +34,16 @@ export class Sandbox {
     mkdirSync(this.sandboxPath, { recursive: true });
 
     // 1. Create junctions for large ignored dependency directories if they exist in host
-    const directoriesToLink = ['node_modules', 'venv', '.venv', '.git', 'dist', 'build', '.next', 'target'];
+    const directoriesToLink = [
+      'node_modules',
+      'venv',
+      '.venv',
+      '.git',
+      'dist',
+      'build',
+      '.next',
+      'target',
+    ];
     for (const dir of directoriesToLink) {
       const hostDir = join(this.hostPath, dir);
       if (existsSync(hostDir) && lstatSync(hostDir).isDirectory()) {
@@ -59,18 +78,47 @@ export class Sandbox {
 
   /**
    * Apply modified files back to the host workspace.
-   * Copies only files that are modified (different content) in the sandbox compared to the host.
+   * Fix #9 — validates that all paths are relative and contain no traversal sequences.
+   * Copies only files that exist in the sandbox.
    */
   async applyToHost(changedFiles: string[]): Promise<string[]> {
     const applied: string[] = [];
     for (const file of changedFiles) {
-      const sandboxFilePath = join(this.sandboxPath, file);
-      const hostFilePath = join(this.hostPath, file);
+      // Fix #9 — path traversal guard
+      if (isAbsolute(file)) {
+        console.warn(
+          `[Sandbox] Skipping absolute path in changedFiles: ${file}`,
+        );
+        continue;
+      }
+      const normalised = normalize(file);
+      if (
+        normalised.startsWith('..') ||
+        normalised.includes('\\..') ||
+        normalised.includes('/..')
+      ) {
+        console.warn(
+          `[Sandbox] Skipping potentially unsafe path in changedFiles: ${file}`,
+        );
+        continue;
+      }
+
+      const sandboxFilePath = join(this.sandboxPath, normalised);
+      const hostFilePath = join(this.hostPath, normalised);
+
+      // Belt-and-suspenders: ensure the resolved path is actually inside the host workspace
+      const resolvedHost = resolve(hostFilePath);
+      if (!resolvedHost.startsWith(resolve(this.hostPath))) {
+        console.warn(
+          `[Sandbox] Path escaped host workspace boundary, skipping: ${file}`,
+        );
+        continue;
+      }
 
       if (existsSync(sandboxFilePath)) {
         mkdirSync(dirname(hostFilePath), { recursive: true });
         copyFileSync(sandboxFilePath, hostFilePath);
-        applied.push(file);
+        applied.push(normalised.replace(/\\/g, '/'));
       }
     }
     return applied;
@@ -133,7 +181,13 @@ export class Sandbox {
     try {
       rmSync(this.sandboxPath, { recursive: true, force: true });
     } catch (err) {
-      console.warn(`[Sandbox] Failed to delete sandbox path '${this.sandboxPath}':`, err);
+      console.warn(
+        `[Sandbox] Failed to delete sandbox path '${this.sandboxPath}':`,
+        err,
+      );
     }
+
+    // Fix #5 — clean up any leftover process isolation artifacts (macOS .sb profile)
+    cleanupIsolationArtifacts(this.sandboxPath);
   }
 }

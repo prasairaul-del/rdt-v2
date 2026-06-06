@@ -1,7 +1,7 @@
 import type {
-  Provider,
   CompletionRequest,
   CompletionResponse,
+  Provider,
   ProviderConfigForClient,
   ProviderErrorDetails,
 } from './types';
@@ -36,7 +36,9 @@ interface OpenAIErrorBody {
   };
 }
 
-function buildOpenAIRequest(request: CompletionRequest): Record<string, unknown> {
+function buildOpenAIRequest(
+  request: CompletionRequest,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: request.model,
     messages: request.messages,
@@ -67,16 +69,44 @@ function parseError(status: number, bodyText: string): ProviderErrorDetails {
 
   switch (status) {
     case 401:
-      return { code: 'INVALID_API_KEY', message: msg, status, retryable: false };
+      return {
+        code: 'INVALID_API_KEY',
+        message: msg,
+        status,
+        retryable: false,
+      };
     case 402:
-      return { code: 'INSUFFICIENT_QUOTA', message: msg, status, retryable: false };
+      return {
+        code: 'INSUFFICIENT_QUOTA',
+        message: msg,
+        status,
+        retryable: false,
+      };
     case 429:
-      return { code: 'RATE_LIMITED', message: msg, status, retryable: true, cooldownMs: 30_000 };
+      return {
+        code: 'RATE_LIMITED',
+        message: msg,
+        status,
+        retryable: true,
+        cooldownMs: 30_000,
+      };
     case 503:
-      return { code: 'SERVICE_UNAVAILABLE', message: msg, status, retryable: true, cooldownMs: 10_000 };
+      return {
+        code: 'SERVICE_UNAVAILABLE',
+        message: msg,
+        status,
+        retryable: true,
+        cooldownMs: 10_000,
+      };
     default:
       if (status >= 500) {
-        return { code: 'SERVER_ERROR', message: msg, status, retryable: true, cooldownMs: 5_000 };
+        return {
+          code: 'SERVER_ERROR',
+          message: msg,
+          status,
+          retryable: true,
+          cooldownMs: 5_000,
+        };
       }
       return { code: 'REQUEST_FAILED', message: msg, status, retryable: false };
   }
@@ -97,13 +127,18 @@ export function createOpenAIProvider(
     config,
 
     isAvailable(): boolean {
-      return config.enabled && (config.type !== 'openai_compatible' || !!openAIConfig.apiKey);
+      return (
+        config.enabled &&
+        (config.type !== 'openai_compatible' || !!openAIConfig.apiKey)
+      );
     },
 
     async complete(request: CompletionRequest): Promise<CompletionResponse> {
       if (!openAIConfig.apiKey) {
         throw Object.assign(
-          new Error(`Provider "${id}" has no API key. Set ${config.apiKeyEnv ?? 'the appropriate env var'}.`),
+          new Error(
+            `Provider "${id}" has no API key. Set ${config.apiKeyEnv ?? 'the appropriate env var'}.`,
+          ),
           {
             code: 'MISSING_API_KEY',
             retryable: false,
@@ -127,9 +162,14 @@ export function createOpenAIProvider(
           signal: AbortSignal.timeout(60_000),
         });
       } catch (err) {
-        const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+        const isTimeout =
+          err instanceof DOMException && err.name === 'TimeoutError';
         throw Object.assign(
-          new Error(isTimeout ? 'Request timed out after 60s' : `Network error: ${(err as Error).message}`),
+          new Error(
+            isTimeout
+              ? 'Request timed out after 60s'
+              : `Network error: ${(err as Error).message}`,
+          ),
           {
             code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR',
             retryable: !isTimeout,
@@ -144,11 +184,15 @@ export function createOpenAIProvider(
         throw Object.assign(new Error(err.message), err);
       }
 
-      const json = await response.json() as {
+      const json = (await response.json()) as {
         id?: string;
         model: string;
         choices: OpenAIChatChoice[];
-        usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+        usage?: {
+          prompt_tokens: number;
+          completion_tokens: number;
+          total_tokens: number;
+        };
       };
 
       const choice = json.choices?.[0];
@@ -184,8 +228,10 @@ export function createOpenAIProvider(
     async embed(model: string, text: string): Promise<number[]> {
       if (!openAIConfig.apiKey) {
         throw Object.assign(
-          new Error(`Provider "${id}" has no API key. Set ${config.apiKeyEnv ?? 'the appropriate env var'}.`),
-          { code: 'MISSING_API_KEY', retryable: false }
+          new Error(
+            `Provider "${id}" has no API key. Set ${config.apiKeyEnv ?? 'the appropriate env var'}.`,
+          ),
+          { code: 'MISSING_API_KEY', retryable: false },
         );
       }
 
@@ -205,27 +251,43 @@ export function createOpenAIProvider(
           signal: AbortSignal.timeout(30_000),
         });
       } catch (err) {
-        const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+        const isTimeout =
+          err instanceof DOMException && err.name === 'TimeoutError';
         throw Object.assign(
-          new Error(isTimeout ? 'Embedding request timed out after 30s' : `Embedding network error: ${(err as Error).message}`),
-          { code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR', retryable: !isTimeout }
+          new Error(
+            isTimeout
+              ? 'Embedding request timed out after 30s'
+              : `Embedding network error: ${(err as Error).message}`,
+          ),
+          {
+            code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR',
+            retryable: !isTimeout,
+          },
         );
       }
 
       if (!response.ok) {
         const bodyText = await response.text().catch(() => '');
         throw Object.assign(
-          new Error(`Embedding failed with status ${response.status}: ${bodyText}`),
-          { code: 'EMBEDDING_FAILED', retryable: response.status >= 500, status: response.status }
+          new Error(
+            `Embedding failed with status ${response.status}: ${bodyText}`,
+          ),
+          {
+            code: 'EMBEDDING_FAILED',
+            retryable: response.status >= 500,
+            status: response.status,
+          },
         );
       }
 
-      const json = await response.json() as { data?: Array<{ embedding: number[] }> };
+      const json = (await response.json()) as {
+        data?: Array<{ embedding: number[] }>;
+      };
       const embedding = json.data?.[0]?.embedding;
       if (!embedding) {
         throw Object.assign(
           new Error('No embedding returned from OpenAI-compatible provider'),
-          { code: 'EMPTY_EMBEDDING', retryable: true }
+          { code: 'EMPTY_EMBEDDING', retryable: true },
         );
       }
 

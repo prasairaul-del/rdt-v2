@@ -1,5 +1,5 @@
-import type { ProviderStateStore } from '../storage/provider-state-store';
 import type { ProviderModelState } from '../providers/types';
+import type { ProviderStateStore } from '../storage/provider-state-store';
 
 export interface RateLimitCheck {
   withinLimits: boolean;
@@ -10,9 +10,7 @@ export interface RateLimitCheck {
 /**
  * Check whether a provider model is within its RPM and daily limits.
  */
-export function checkRateLimit(
-  state: ProviderModelState,
-): RateLimitCheck {
+export function checkRateLimit(state: ProviderModelState): RateLimitCheck {
   // Check daily limit
   if (state.dailyLimit !== undefined && state.dailyLimit > 0) {
     if (state.requestsToday >= state.dailyLimit) {
@@ -44,7 +42,10 @@ export function checkRateLimit(
 export function filterRateLimited(
   store: ProviderStateStore,
   models: ProviderModelState[],
-): { available: ProviderModelState[]; limited: Array<{ model: ProviderModelState; reason: string }> } {
+): {
+  available: ProviderModelState[];
+  limited: Array<{ model: ProviderModelState; reason: string }>;
+} {
   const available: ProviderModelState[] = [];
   const limited: Array<{ model: ProviderModelState; reason: string }> = [];
 

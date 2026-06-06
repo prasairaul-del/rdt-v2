@@ -6,7 +6,12 @@ export interface RouterRequirements {
   needsJson: boolean;
 }
 
-const COST_ORDER: Record<string, number> = { free: 0, low: 1, medium: 2, high: 3 };
+const COST_ORDER: Record<string, number> = {
+  free: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+};
 
 /**
  * Filter candidates by policy cost ceiling, then sort by policy preference order.

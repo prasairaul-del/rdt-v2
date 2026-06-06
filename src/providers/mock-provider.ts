@@ -1,17 +1,27 @@
-import type { Provider, CompletionRequest, CompletionResponse, ProviderConfigForClient } from './types';
+import type {
+  CompletionRequest,
+  CompletionResponse,
+  Provider,
+  ProviderConfigForClient,
+} from './types';
 
 export interface MockResponseConfig {
   content?: string;
   toolCalls?: Array<{ name: string; args: Record<string, unknown> }>;
   model?: string;
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 export class MockProvider implements Provider {
   readonly name: string;
   readonly config: ProviderConfigForClient;
   private responseConfig: MockResponseConfig;
-  public callHistory: Array<{ request: CompletionRequest; timestamp: number }> = [];
+  public callHistory: Array<{ request: CompletionRequest; timestamp: number }> =
+    [];
 
   constructor(
     name: string,

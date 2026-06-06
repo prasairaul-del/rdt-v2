@@ -54,7 +54,12 @@ export interface ProviderErrorDetails {
 
 export interface ProviderConfigForClient {
   id: string;
-  type: 'openai_compatible' | 'ollama';
+  type:
+    | 'openai_compatible'
+    | 'ollama'
+    | 'anthropic'
+    | 'google'
+    | 'google_vertex';
   baseUrl: string;
   apiKeyEnv?: string;
   enabled: boolean;

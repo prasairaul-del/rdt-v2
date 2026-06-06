@@ -1,12 +1,14 @@
 import { execSync } from 'node:child_process';
-import type { Tool } from './types';
-import { successResult, errorResult } from '../core/result';
+import { errorResult, successResult } from '../core/result';
 import { wrapCommand } from './process-isolation';
+import type { Tool } from './types';
 
 export interface RunShellInput {
   command: string;
   timeoutMs?: number;
   allowBlocked?: boolean;
+  /** Override working directory (avoids process.cwd() dependency) */
+  cwd?: string;
 }
 
 export interface RunShellOutput {
@@ -16,10 +18,22 @@ export interface RunShellOutput {
 }
 
 const BLOCKED_COMMANDS = [
-  'rm -rf /', 'rm -rf / ', 'rm -rf /*', 'rm -rf .*',
-  'format ', 'mkfs', 'shutdown', 'reboot', 'halt',
-  'dd if=', ':(){ :|:& };:', '> /dev/sda',
-  'sudo rm', 'sudo dd', 'sudo shutdown', 'sudo reboot',
+  'rm -rf /',
+  'rm -rf / ',
+  'rm -rf /*',
+  'rm -rf .*',
+  'format ',
+  'mkfs',
+  'shutdown',
+  'reboot',
+  'halt',
+  'dd if=',
+  ':(){ :|:& };:',
+  '> /dev/sda',
+  'sudo rm',
+  'sudo dd',
+  'sudo shutdown',
+  'sudo reboot',
 ];
 
 const BLOCKED_PATTERNS = [
@@ -64,13 +78,20 @@ function isRisky(command: string): boolean {
 
 export const runShellTool: Tool<RunShellInput, RunShellOutput> = {
   name: 'run_shell',
-  description: 'Runs a safe shell command with timeout. Blocks dangerous commands.',
+  description:
+    'Runs a safe shell command with timeout. Blocks dangerous commands.',
   inputSchema: {
     type: 'object',
     properties: {
       command: { type: 'string', description: 'Shell command to execute' },
-      timeoutMs: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' },
-      allowBlocked: { type: 'boolean', description: 'Override block for risky commands (default: false)' },
+      timeoutMs: {
+        type: 'number',
+        description: 'Timeout in milliseconds (default: 30000)',
+      },
+      allowBlocked: {
+        type: 'boolean',
+        description: 'Override block for risky commands (default: false)',
+      },
     },
     required: ['command'],
   },
@@ -89,24 +110,35 @@ export const runShellTool: Tool<RunShellInput, RunShellOutput> = {
 
     // Warn about risky commands
     if (isRisky(input.command) && !input.allowBlocked) {
-      return errorResult('PERMISSION_DENIED', 
+      return errorResult(
+        'PERMISSION_DENIED',
         `Command '${input.command.split(/\s+/)[0]} ...' is risky and requires allowBlocked: true.`,
-        ['Set allowBlocked: true to run this command', 'Verify the command is safe before running'],
+        [
+          'Set allowBlocked: true to run this command',
+          'Verify the command is safe before running',
+        ],
       );
     }
 
     try {
-      const isolatedCommand = wrapCommand(input.command, process.cwd());
+      const cwd = input.cwd ?? process.cwd();
+      const isolatedCommand = wrapCommand(input.command, cwd);
       const stdout = execSync(isolatedCommand, {
         encoding: 'utf-8',
         timeout,
         maxBuffer: 10 * 1024 * 1024,
+        cwd,
       });
 
       return successResult({ stdout: stdout.trim(), stderr: '', exitCode: 0 });
     } catch (err) {
       if (err instanceof Error) {
-        const error = err as Error & { code?: number; stdout?: string; stderr?: string; killed?: boolean };
+        const error = err as Error & {
+          code?: number;
+          stdout?: string;
+          stderr?: string;
+          killed?: boolean;
+        };
         const exitCode = error.code ?? 1;
         const stderr = error.stderr ?? '';
         const stdout = error.stdout ?? '';
@@ -121,7 +153,10 @@ export const runShellTool: Tool<RunShellInput, RunShellOutput> = {
           exitCode: typeof exitCode === 'number' ? exitCode : 1,
         });
       }
-      return errorResult('COMMAND_FAILED', `Shell command failed: ${String(err)}`);
+      return errorResult(
+        'COMMAND_FAILED',
+        `Shell command failed: ${String(err)}`,
+      );
     }
   },
 };

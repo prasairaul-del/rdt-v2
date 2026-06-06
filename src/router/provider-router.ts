@@ -1,13 +1,26 @@
-import type { Provider, CompletionRequest, CompletionResponse, CompletionUsage, ProviderErrorDetails, ProviderConfigForClient } from '../providers/types';
-import { ProviderStateStore } from '../storage/provider-state-store';
-import { matchModels, hasCapability, type RouterRequirements } from './model-policy';
-import { filterRateLimited } from './rate-limit-state';
-import { filterCooldown, calculateCooldownMs } from './cooldown';
-import { createRetryState, decideRetry, waitForRetry } from './retry-policy';
 import type { RdtConfig } from '../config/schema';
-import { createOpenRouterProvider } from '../providers/openrouter-provider';
-import { createOpenAIProvider } from '../providers/openai-compatible-provider';
+import { AnthropicProvider } from '../providers/anthropic-provider';
+import { GoogleProvider } from '../providers/google-provider';
 import { createOllamaProvider } from '../providers/ollama-provider';
+import { createOpenAIProvider } from '../providers/openai-compatible-provider';
+import { createOpenRouterProvider } from '../providers/openrouter-provider';
+import type {
+  CompletionRequest,
+  CompletionResponse,
+  CompletionUsage,
+  Provider,
+  ProviderConfigForClient,
+  ProviderErrorDetails,
+} from '../providers/types';
+import { ProviderStateStore } from '../storage/provider-state-store';
+import { calculateCooldownMs, filterCooldown } from './cooldown';
+import {
+  type RouterRequirements,
+  hasCapability,
+  matchModels,
+} from './model-policy';
+import { filterRateLimited } from './rate-limit-state';
+import { createRetryState, decideRetry, waitForRetry } from './retry-policy';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -74,8 +87,32 @@ export class ProviderRouter {
 
       if (providerCfg.id.startsWith('openrouter')) {
         provider = createOpenRouterProvider(internalConfig);
+      } else if (providerCfg.type === 'anthropic') {
+        // Fix #10 — native Anthropic adapter
+        const apiKey = internalConfig.apiKeyEnv
+          ? (process.env[internalConfig.apiKeyEnv] ?? null)
+          : null;
+        provider = new AnthropicProvider(
+          providerCfg.id,
+          { apiKey },
+          internalConfig,
+        ) as unknown as Provider;
+      } else if (
+        providerCfg.type === 'google' ||
+        providerCfg.type === 'google_vertex'
+      ) {
+        const apiKey = internalConfig.apiKeyEnv
+          ? (process.env[internalConfig.apiKeyEnv] ?? null)
+          : null;
+        provider = new GoogleProvider(
+          providerCfg.id,
+          { apiKey },
+          internalConfig,
+        ) as unknown as Provider;
       } else if (providerCfg.type === 'openai_compatible') {
-        const apiKey = internalConfig.apiKeyEnv ? (process.env[internalConfig.apiKeyEnv] ?? null) : null;
+        const apiKey = internalConfig.apiKeyEnv
+          ? (process.env[internalConfig.apiKeyEnv] ?? null)
+          : null;
         provider = createOpenAIProvider(providerCfg.id, internalConfig, apiKey);
       } else if (providerCfg.type === 'ollama') {
         provider = createOllamaProvider(internalConfig);
@@ -106,7 +143,8 @@ export class ProviderRouter {
         cost: m.cost,
         supportsTools: m.supports_tools,
         supportsJson: m.supports_json,
-        contextWindow: m.context_window === 'auto' ? undefined : m.context_window,
+        contextWindow:
+          m.context_window === 'auto' ? undefined : m.context_window,
       })),
     );
   }
@@ -159,7 +197,10 @@ export class ProviderRouter {
       });
     }
 
-    const { available: notRateLimited, limited } = filterRateLimited(this.stateStore, notCooling);
+    const { available: notRateLimited, limited } = filterRateLimited(
+      this.stateStore,
+      notCooling,
+    );
     for (const { model, reason } of limited) {
       exhausted.push({
         providerId: model.providerId,
@@ -174,12 +215,18 @@ export class ProviderRouter {
     if (candidates.length === 0) {
       // Include exhausted models in error message even if no candidates
       const snap = this.stateStore.snapshot();
-      const msg = candidates.length === 0 && allEnabled.length > 0
-        ? 'No provider models match the policy requirements (all filtered by cooldown, rate limits, or capabilities)'
-        : 'No enabled provider models available';
+      const msg =
+        candidates.length === 0 && allEnabled.length > 0
+          ? 'No provider models match the policy requirements (all filtered by cooldown, rate limits, or capabilities)'
+          : 'No enabled provider models available';
       return {
         success: false,
-        error: { message: msg, attempts, exhausted, providerSnapshot: snap.capturedAt },
+        error: {
+          message: msg,
+          attempts,
+          exhausted,
+          providerSnapshot: snap.capturedAt,
+        },
         attempts,
       };
     }
@@ -198,6 +245,29 @@ export class ProviderRouter {
         continue;
       }
 
+      // Fix #12 — per-call token budget: skip model if prompt exceeds its context window
+      const modelState = this.stateStore.get(
+        candidate.providerId,
+        candidate.modelId,
+      );
+      if (modelState?.contextWindow && modelState.contextWindow !== 'auto') {
+        // Rough estimate: 4 chars ≈ 1 token for the request body
+        const estimatedPromptTokens = Math.ceil(
+          JSON.stringify(request.messages).length / 4,
+        );
+        const outputReserve = request.max_tokens ?? 2048;
+        if (estimatedPromptTokens + outputReserve > modelState.contextWindow) {
+          attempts.push({
+            providerId: candidate.providerId,
+            modelId: candidate.modelId,
+            status: 'skipped',
+            error: `Prompt (~${estimatedPromptTokens} tokens) + output reserve (${outputReserve}) exceeds model context window (${modelState.contextWindow})`,
+            durationMs: 0,
+          });
+          continue;
+        }
+      }
+
       // Try with retries
       const retryState = createRetryState(3, 1_000, 30_000);
       const apiModelName = candidate.modelName ?? candidate.modelId;
@@ -212,7 +282,10 @@ export class ProviderRouter {
           durationMs = performance.now() - start;
 
           // Success — record and return
-          this.stateStore.recordSuccess(candidate.providerId, candidate.modelId);
+          this.stateStore.recordSuccess(
+            candidate.providerId,
+            candidate.modelId,
+          );
           attempts.push({
             providerId: candidate.providerId,
             modelId: candidate.modelId,
@@ -231,9 +304,12 @@ export class ProviderRouter {
           const providerErr = err as Error & ProviderErrorDetails;
 
           // Determine error code
-          const errorCode = (err as Record<string, unknown>).code as string | undefined
-            ?? (err as Record<string, unknown>).errorCode as string | undefined
-            ?? 'UNKNOWN';
+          const errorCode =
+            ((err as Record<string, unknown>).code as string | undefined) ??
+            ((err as Record<string, unknown>).errorCode as
+              | string
+              | undefined) ??
+            'UNKNOWN';
 
           this.stateStore.recordError(
             candidate.providerId,
@@ -243,9 +319,15 @@ export class ProviderRouter {
 
           // Handle 429 rate limit — set cooldown and try next candidate
           if (errorCode === 'RATE_LIMITED') {
-            const cooldownMs = (err as Record<string, unknown>).cooldownMs as number
-              ?? calculateCooldownMs('RATE_LIMITED', 0);
-            this.stateStore.recordError(candidate.providerId, candidate.modelId, 'RATE_LIMITED', cooldownMs);
+            const cooldownMs =
+              ((err as Record<string, unknown>).cooldownMs as number) ??
+              calculateCooldownMs('RATE_LIMITED', 0);
+            this.stateStore.recordError(
+              candidate.providerId,
+              candidate.modelId,
+              'RATE_LIMITED',
+              cooldownMs,
+            );
 
             attempts.push({
               providerId: candidate.providerId,
@@ -266,8 +348,14 @@ export class ProviderRouter {
           }
 
           // Handle capability errors — mark capability as false if auto
-          if (errorCode === 'MODEL_CAPABILITY_ERROR' || errorCode === 'INVALID_TOOLS') {
-            const state = this.stateStore.get(candidate.providerId, candidate.modelId);
+          if (
+            errorCode === 'MODEL_CAPABILITY_ERROR' ||
+            errorCode === 'INVALID_TOOLS'
+          ) {
+            const state = this.stateStore.get(
+              candidate.providerId,
+              candidate.modelId,
+            );
             if (state) {
               if (requirements.needsTools && state.supportsTools === 'auto') {
                 const record = state as { supportsTools: boolean | 'auto' };
@@ -294,7 +382,9 @@ export class ProviderRouter {
           if (providerErr.retryable ?? false) {
             const retryDecision = decideRetry(retryState, {
               retryable: true,
-              cooldownMs: (err as Record<string, unknown>).cooldownMs as number | undefined,
+              cooldownMs: (err as Record<string, unknown>).cooldownMs as
+                | number
+                | undefined,
             });
 
             if (retryDecision.shouldRetry) {
@@ -346,7 +436,9 @@ export class ProviderRouter {
     for (const [providerId, provider] of this.providers.entries()) {
       if (provider.embed && provider.isAvailable()) {
         const embedModel = provider.config.models.find(
-          (m) => m.id.toLowerCase().includes('embed') || m.model.toLowerCase().includes('embed')
+          (m) =>
+            m.id.toLowerCase().includes('embed') ||
+            m.model.toLowerCase().includes('embed'),
         );
         if (embedModel) {
           try {
@@ -361,7 +453,10 @@ export class ProviderRouter {
     // 2. Fall back to trying first provider that implements embed using standard defaults
     for (const [providerId, provider] of this.providers.entries()) {
       if (provider.embed && provider.isAvailable()) {
-        const defaultModel = provider.config.type === 'ollama' ? 'nomic-embed-text' : 'text-embedding-3-small';
+        const defaultModel =
+          provider.config.type === 'ollama'
+            ? 'nomic-embed-text'
+            : 'text-embedding-3-small';
         try {
           return await provider.embed(defaultModel, text);
         } catch (err) {

@@ -1,13 +1,15 @@
 import { execSync } from 'node:child_process';
+import { errorResult, successResult } from '../core/result';
 import { detectCommands } from '../project-context/command-detector';
-import type { Tool } from './types';
-import { successResult, errorResult } from '../core/result';
 import { wrapCommand } from './process-isolation';
+import type { Tool } from './types';
 
 export interface TestRunnerInput {
   command?: string;
   testPath?: string;
   timeoutMs?: number;
+  /** Override working directory (avoids process.cwd() dependency) */
+  cwd?: string;
 }
 
 export interface TestRunnerOutput {
@@ -24,27 +26,45 @@ export const testRunnerTool: Tool<TestRunnerInput, TestRunnerOutput> = {
   inputSchema: {
     type: 'object',
     properties: {
-      command: { type: 'string', description: 'Override: specific command to run' },
-      testPath: { type: 'string', description: 'Specific test file or path filter' },
-      timeoutMs: { type: 'number', description: 'Timeout in milliseconds (default: 120000)' },
+      command: {
+        type: 'string',
+        description: 'Override: specific command to run',
+      },
+      testPath: {
+        type: 'string',
+        description: 'Specific test file or path filter',
+      },
+      timeoutMs: {
+        type: 'number',
+        description: 'Timeout in milliseconds (default: 120000)',
+      },
+      cwd: {
+        type: 'string',
+        description: 'Working directory for running tests',
+      },
     },
   },
 
   async execute(input: TestRunnerInput) {
     try {
       const timeout = input.timeoutMs ?? 120_000;
+      const cwd = input.cwd ?? process.cwd();
       let command: string;
 
       if (input.command) {
         command = input.command;
       } else {
-        const detected = detectCommands(process.cwd());
+        const detected = detectCommands(cwd);
         if (!detected.testCommand) {
-          return errorResult('NOT_FOUND', 'No test command detected. Use command override.', [
-            'Specify a command explicitly',
-            'Add a "test" script to package.json',
-            'Check for test configuration files',
-          ]);
+          return errorResult(
+            'NOT_FOUND',
+            'No test command detected. Use command override.',
+            [
+              'Specify a command explicitly',
+              'Add a "test" script to package.json',
+              'Check for test configuration files',
+            ],
+          );
         }
         command = detected.testCommand;
       }
@@ -55,11 +75,12 @@ export const testRunnerTool: Tool<TestRunnerInput, TestRunnerOutput> = {
       }
 
       try {
-        const isolatedCommand = wrapCommand(command, process.cwd());
+        const isolatedCommand = wrapCommand(command, cwd);
         const stdout = execSync(isolatedCommand, {
           encoding: 'utf-8',
           timeout,
           maxBuffer: 10 * 1024 * 1024,
+          cwd,
         });
 
         return successResult({
@@ -70,10 +91,18 @@ export const testRunnerTool: Tool<TestRunnerInput, TestRunnerOutput> = {
           passed: true,
         });
       } catch (err) {
-        const error = err as Error & { code?: number; stdout?: string; stderr?: string; killed?: boolean };
+        const error = err as Error & {
+          code?: number;
+          stdout?: string;
+          stderr?: string;
+          killed?: boolean;
+        };
 
         if (error.killed) {
-          return errorResult('TIMEOUT', `Test command timed out after ${timeout}ms`);
+          return errorResult(
+            'TIMEOUT',
+            `Test command timed out after ${timeout}ms`,
+          );
         }
 
         return successResult({

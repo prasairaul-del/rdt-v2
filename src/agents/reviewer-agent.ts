@@ -1,12 +1,48 @@
-import type { AgentInput, AgentOutput, ReviewResult } from './types';
-import type { ProviderRouter } from '../router/provider-router';
 import type { CompletionMessage } from '../providers/types';
+import type { ProviderRouter } from '../router/provider-router';
 import { gitDiffTool } from '../tools/git-diff';
 import { testRunnerTool } from '../tools/test-runner';
+import type { AgentInput, AgentOutput, ReviewResult } from './types';
 
 export interface ReviewerAgentConfig {
   router: ProviderRouter;
   policyName: string;
+  /** Explicit working directory for tool operations (avoids process.cwd() dependency) */
+  cwd?: string;
+}
+
+/**
+ * Robust JSON extraction from LLM output.
+ * Handles markdown code fences, leading text, and nested braces.
+ */
+function safeParseJson<T>(text: string): T | null {
+  const stripped = text
+    .replace(/^```(?:json)?\s*/m, '')
+    .replace(/```\s*$/m, '')
+    .trim();
+  try {
+    return JSON.parse(stripped) as T;
+  } catch {
+    /* continue */
+  }
+  const first = stripped.indexOf('{');
+  const last = stripped.lastIndexOf('}');
+  if (first !== -1 && last > first) {
+    try {
+      return JSON.parse(stripped.slice(first, last + 1)) as T;
+    } catch {
+      /* continue */
+    }
+  }
+  const match = text.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      return JSON.parse(match[0]) as T;
+    } catch {
+      /* fall through */
+    }
+  }
+  return null;
 }
 
 /**
@@ -29,12 +65,15 @@ export async function reviewerAgent(
   try {
     // 1. Check git diff
     const diffStart = performance.now();
-    const diffResult = await gitDiffTool.execute({});
+    const diffResult = await gitDiffTool.execute({ cwd: config?.cwd });
     const diffDuration = performance.now() - diffStart;
     toolCalls.push({
       toolName: 'git_diff',
       input: {},
-      output: { hasChanges: diffResult.data?.hasChanges ?? false, filesChanged: diffResult.data?.filesChanged ?? 0 },
+      output: {
+        hasChanges: diffResult.data?.hasChanges ?? false,
+        filesChanged: diffResult.data?.filesChanged ?? 0,
+      },
       durationMs: Math.round(diffDuration),
     });
 
@@ -42,21 +81,31 @@ export async function reviewerAgent(
     if (diffResult.success && diffResult.data) {
       diff = diffResult.data.diff;
       if (!diffResult.data.hasChanges) {
-        issues.push('No changes detected in git diff. Edits may not have been applied.');
+        issues.push(
+          'No changes detected in git diff. Edits may not have been applied.',
+        );
         requiredFixes.push('Ensure patches are being applied correctly');
       }
     } else {
-      issues.push(`Git diff failed: ${diffResult.error?.message ?? 'unknown error'}`);
+      issues.push(
+        `Git diff failed: ${diffResult.error?.message ?? 'unknown error'}`,
+      );
     }
 
     // 2. Run tests if available
     const testStart = performance.now();
-    const testResult = await testRunnerTool.execute({ timeoutMs: 120_000 });
+    const testResult = await testRunnerTool.execute({
+      timeoutMs: 120_000,
+      cwd: config?.cwd,
+    });
     const testDuration = performance.now() - testStart;
     toolCalls.push({
       toolName: 'test_runner',
       input: { timeoutMs: 120_000 },
-      output: { passed: testResult.data?.passed ?? false, exitCode: testResult.data?.exitCode ?? -1 },
+      output: {
+        passed: testResult.data?.passed ?? false,
+        exitCode: testResult.data?.exitCode ?? -1,
+      },
       durationMs: Math.round(testDuration),
     });
 
@@ -65,35 +114,63 @@ export async function reviewerAgent(
     if (testResult.success && testResult.data) {
       testOutput = testResult.data.stdout;
       testsPassed = testResult.data.passed;
-      const hadPreExistingFailure = task.baselines?.dirtyFiles?.some(
-        (f) => f.includes('test') || f.includes('spec'),
-      ) ?? false;
+      const hadPreExistingFailure =
+        task.baselines?.dirtyFiles?.some(
+          (f) => f.includes('test') || f.includes('spec'),
+        ) ?? false;
 
       testsRun.push({
         command: testResult.data.command,
         passed: testResult.data.passed,
-        outputSummary: testOutput.slice(0, 500) + (testOutput.length > 500 ? '...' : ''),
+        outputSummary:
+          testOutput.slice(0, 500) + (testOutput.length > 500 ? '...' : ''),
       });
 
       if (!testResult.data.passed) {
         if (hadPreExistingFailure) {
-          issues.push('Tests are failing (may be pre-existing — test files were dirty before edits)');
+          issues.push(
+            'Tests are failing (may be pre-existing — test files were dirty before edits)',
+          );
         } else {
           issues.push('Tests are failing after the edit');
           requiredFixes.push('Fix the failing tests');
         }
       }
     } else {
-      issues.push(`Test runner failed: ${testResult.error?.message ?? 'unknown error'}`);
+      issues.push(
+        `Test runner failed: ${testResult.error?.message ?? 'unknown error'}`,
+      );
     }
 
-    // 3. Check typecheck if available
+    // 3. Check typecheck — fix #6: detect script presence first, fall back to tsc
     const typecheckStart = performance.now();
+    let typecheckCmd: string;
+    const cwd = config?.cwd ?? process.cwd();
+    const pkgMgr = project?.project?.packageManager;
+    // Check if a typecheck script exists in package.json before using it
+    let hasTypecheckScript = false;
+    try {
+      const { readFileSync, existsSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const pkgPath = join(cwd, 'package.json');
+      if (existsSync(pkgPath)) {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
+          scripts?: Record<string, string>;
+        };
+        hasTypecheckScript = !!pkg.scripts?.typecheck;
+      }
+    } catch {
+      /* ignore */
+    }
+    if (hasTypecheckScript && pkgMgr) {
+      typecheckCmd = `${pkgMgr} run typecheck`;
+    } else {
+      typecheckCmd = 'node node_modules/typescript/bin/tsc --noEmit';
+    }
     const typecheckResult = await testRunnerTool.execute({
-      command: project?.project?.packageManager
-        ? `${project.project.packageManager} run typecheck`
-        : 'npx tsc --noEmit',
+      command: typecheckCmd,
       timeoutMs: 60_000,
+      cwd,
     });
     const typecheckDuration = performance.now() - typecheckStart;
     toolCalls.push({
@@ -104,14 +181,18 @@ export async function reviewerAgent(
     });
 
     let typecheckPassed = true;
-    if (typecheckResult.success && typecheckResult.data && !typecheckResult.data.passed) {
+    if (
+      typecheckResult.success &&
+      typecheckResult.data &&
+      !typecheckResult.data.passed
+    ) {
       typecheckPassed = false;
       issues.push('Typecheck failed after edits');
       requiredFixes.push('Fix type errors');
       testsRun.push({
         command: typecheckResult.data.command,
         passed: false,
-        outputSummary: typecheckResult.data.stderr.slice(0, 300) + '...',
+        outputSummary: `${typecheckResult.data.stderr.slice(0, 300)}...`,
       });
     } else if (typecheckResult.success && typecheckResult.data?.passed) {
       testsRun.push({
@@ -127,7 +208,9 @@ export async function reviewerAgent(
     if (config?.router?.route && diff) {
       try {
         const planSteps = plan?.steps
-          ? plan.steps.map((s) => `  ${s.id}: ${s.description} (risk: ${s.risk})`).join('\n')
+          ? plan.steps
+              .map((s) => `  ${s.id}: ${s.description} (risk: ${s.risk})`)
+              .join('\n')
           : 'No plan steps available';
 
         const messages: CompletionMessage[] = [
@@ -172,7 +255,8 @@ Typecheck passed: ${typecheckPassed}`,
         if (routerResult.success && routerResult.response) {
           const content = routerResult.response.content;
           // Record provider usage
-          const successAttempt = routerResult.attempts[routerResult.attempts.length - 1];
+          const successAttempt =
+            routerResult.attempts[routerResult.attempts.length - 1];
           task.providerUsage.push({
             agentName: 'reviewer',
             providerId: successAttempt?.providerId ?? 'unknown',
@@ -181,23 +265,19 @@ Typecheck passed: ${typecheckPassed}`,
             durationMs: successAttempt?.durationMs ?? 0,
           });
 
-          // Try to parse JSON from response
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            try {
-              const parsed = JSON.parse(jsonMatch[0]) as {
-                approved: boolean;
-                summary?: string;
-                issues?: string[];
-                requiredFixes?: string[];
-              };
-              approved = parsed.approved;
-              providerMadeDecision = true;
-              if (parsed.issues) issues.push(...parsed.issues);
-              if (parsed.requiredFixes) requiredFixes.push(...parsed.requiredFixes);
-            } catch {
-              // JSON parse failed — fall through to heuristic approval
-            }
+          // Fix #2 — robust JSON extraction
+          const parsed = safeParseJson<{
+            approved: boolean;
+            summary?: string;
+            issues?: string[];
+            requiredFixes?: string[];
+          }>(content);
+          if (parsed !== null) {
+            approved = parsed.approved;
+            providerMadeDecision = true;
+            if (parsed.issues) issues.push(...parsed.issues);
+            if (parsed.requiredFixes)
+              requiredFixes.push(...parsed.requiredFixes);
           }
         }
       } catch {
@@ -208,8 +288,10 @@ Typecheck passed: ${typecheckPassed}`,
     // Heuristic approval (only if provider didn't make a decision)
     if (!providerMadeDecision) {
       const testsAllPassed = testsRun.every((t) => t.passed);
-      const noCriticalIssues = !issues.some((i) =>
-        i.includes('Tests are failing after') || i.includes('Typecheck failed'),
+      const noCriticalIssues = !issues.some(
+        (i) =>
+          i.includes('Tests are failing after') ||
+          i.includes('Typecheck failed'),
       );
       approved = testsAllPassed && noCriticalIssues;
     }
@@ -232,7 +314,8 @@ Typecheck passed: ${typecheckPassed}`,
         issues,
         testsRun,
         requiredFixes,
-        finalSummary: summaryParts.length > 0 ? summaryParts.join(', ') : 'Review complete',
+        finalSummary:
+          summaryParts.length > 0 ? summaryParts.join(', ') : 'Review complete',
       },
       modelUsed: config?.policyName ?? 'reviewer',
       providerUsed: config?.router ? 'provider' : 'heuristic',

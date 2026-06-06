@@ -1,7 +1,7 @@
-import { Command } from 'commander';
 import { resolve } from 'node:path';
-import { TaskRunner } from '../../core/task-runner';
+import { Command } from 'commander';
 import { loadConfig } from '../../config/load-config';
+import { TaskRunner } from '../../core/task-runner';
 
 export function createRunCommand(): Command {
   return new Command('run')
@@ -17,12 +17,21 @@ export function createRunCommand(): Command {
       }
 
       const projectRoot = process.cwd();
-      console.log(`\n  RDT v2 — Running task`);
+      console.log('\n  RDT v2 — Running task');
       console.log(`  ${'─'.repeat(40)}`);
       console.log(`  Request: ${task}\n`);
 
       try {
         const configResult = loadConfig(projectRoot);
+        if (!configResult.loaded) {
+          console.warn(
+            `\n\x1b[33mWarning: Configuration file not found at: ${configResult.path}\x1b[0m`,
+          );
+          console.warn(
+            'Please run \x1b[36mrdt init\x1b[0m to configure your project first, or continue using default configurations.\n',
+          );
+        }
+
         const runner = new TaskRunner({
           projectRoot,
           rdtConfig: configResult.config,
@@ -44,7 +53,7 @@ export function createRunCommand(): Command {
         }
 
         if (result.providerSummary) {
-          console.log(`\n  Provider usage:`);
+          console.log('\n  Provider usage:');
           for (const line of result.providerSummary.split('\n')) {
             console.log(`    ${line}`);
           }

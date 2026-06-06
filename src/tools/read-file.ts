@@ -1,12 +1,21 @@
-import { readFileSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
+import { errorResult, successResult } from '../core/result';
 import type { Tool } from './types';
-import { successResult, errorResult } from '../core/result';
 
 export interface ReadFileInput {
   path: string;
   maxBytes?: number;
   encoding?: BufferEncoding;
+  /** Override working directory for path resolution (avoids process.cwd() dependency) */
+  cwd?: string;
 }
 
 export interface ReadFileOutput {
@@ -25,15 +34,26 @@ export const readFileTool: Tool<ReadFileInput, ReadFileOutput> = {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'Relative path to file' },
-      maxBytes: { type: 'number', description: 'Maximum bytes to read (default: 1MB)' },
-      encoding: { type: 'string', description: 'File encoding (default: utf-8)' },
+      maxBytes: {
+        type: 'number',
+        description: 'Maximum bytes to read (default: 1MB)',
+      },
+      encoding: {
+        type: 'string',
+        description: 'File encoding (default: utf-8)',
+      },
+      cwd: {
+        type: 'string',
+        description: 'Working directory for path resolution',
+      },
     },
     required: ['path'],
   },
 
   async execute(input: ReadFileInput) {
     try {
-      const absPath = resolve(process.cwd(), input.path);
+      const base = input.cwd ?? process.cwd();
+      const absPath = resolve(base, input.path);
       const maxBytes = input.maxBytes ?? DEFAULT_MAX_BYTES;
 
       if (!existsSync(absPath)) {
@@ -46,7 +66,10 @@ export const readFileTool: Tool<ReadFileInput, ReadFileOutput> = {
 
       const stat = statSync(absPath);
       if (stat.isDirectory()) {
-        return errorResult('VALIDATION_ERROR', `'${input.path}' is a directory, not a file`);
+        return errorResult(
+          'VALIDATION_ERROR',
+          `'${input.path}' is a directory, not a file`,
+        );
       }
 
       if (stat.size > maxBytes) {
@@ -55,17 +78,33 @@ export const readFileTool: Tool<ReadFileInput, ReadFileOutput> = {
         readSync(fd, buf, 0, maxBytes, 0);
         closeSync(fd);
         const content = buf.toString(input.encoding || 'utf-8');
-        return successResult({ path: input.path, content, size: stat.size, truncated: true });
+        return successResult({
+          path: input.path,
+          content,
+          size: stat.size,
+          truncated: true,
+        });
       }
 
       const content = readFileSync(absPath, input.encoding || 'utf-8');
-      return successResult({ path: input.path, content, size: stat.size, truncated: false });
+      return successResult({
+        path: input.path,
+        content,
+        size: stat.size,
+        truncated: false,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('EACCES') || message.includes('EPERM')) {
-        return errorResult('PERMISSION_DENIED', `Cannot read '${input.path}': ${message}`);
+        return errorResult(
+          'PERMISSION_DENIED',
+          `Cannot read '${input.path}': ${message}`,
+        );
       }
-      return errorResult('INTERNAL_ERROR', `Failed to read '${input.path}': ${message}`);
+      return errorResult(
+        'INTERNAL_ERROR',
+        `Failed to read '${input.path}': ${message}`,
+      );
     }
   },
 };

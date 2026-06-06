@@ -1,6 +1,13 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { existsSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { join, resolve } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TaskRunner } from '../../src/core/task-runner';
 
 // ── Module Mocks ───────────────────────────────────────────────────
@@ -9,7 +16,6 @@ import { TaskRunner } from '../../src/core/task-runner';
 // TaskRunner creates a TaskLogStore which depends on bun:sqlite.
 vi.mock('bun:sqlite', () => ({
   Database: class MockDatabase {
-    constructor(_path: string) {}
     exec(_sql: string) {}
     run(_sql: string, ..._params: unknown[]) {}
     query(_sql: string) {
@@ -170,7 +176,9 @@ describe('rdt run — failing-test fixture integration', () => {
   });
 
   it('should discover the fixture project correctly', async () => {
-    const { detectProject } = await import('../../src/project-context/detect-project');
+    const { detectProject } = await import(
+      '../../src/project-context/detect-project'
+    );
     const info = detectProject(TEMP_DIR);
 
     expect(info.name).toBe('failing-test-fixture');
@@ -182,13 +190,19 @@ describe('rdt run — failing-test fixture integration', () => {
 
   it('should detect the failing tests in the fixture', async () => {
     // Read the test file to verify the bug exists
-    const testContent = readFileSync(join(TEMP_DIR, 'tests', 'multiply.test.ts'), 'utf-8');
+    const testContent = readFileSync(
+      join(TEMP_DIR, 'tests', 'multiply.test.ts'),
+      'utf-8',
+    );
     expect(testContent).toContain('multiply(2, 3)).toBe(6');
     expect(testContent).toContain('multiply(5, 0)).toBe(0');
     expect(testContent).toContain('multiply(-2, 3)).toBe(-6');
 
     // Read the source to verify the bug
-    const srcContent = readFileSync(join(TEMP_DIR, 'src', 'multiply.ts'), 'utf-8');
+    const srcContent = readFileSync(
+      join(TEMP_DIR, 'src', 'multiply.ts'),
+      'utf-8',
+    );
     expect(srcContent).toContain('return a + b');
   });
 
@@ -197,10 +211,16 @@ describe('rdt run — failing-test fixture integration', () => {
     const result = await runner.run('fix the math bug');
 
     // Check that source and test files exist and are readable
-    const srcContent = readFileSync(join(TEMP_DIR, 'src', 'multiply.ts'), 'utf-8');
+    const srcContent = readFileSync(
+      join(TEMP_DIR, 'src', 'multiply.ts'),
+      'utf-8',
+    );
     expect(srcContent).toContain('export function multiply');
 
-    const testContent = readFileSync(join(TEMP_DIR, 'tests', 'multiply.test.ts'), 'utf-8');
+    const testContent = readFileSync(
+      join(TEMP_DIR, 'tests', 'multiply.test.ts'),
+      'utf-8',
+    );
     expect(testContent).toContain('describe');
     expect(testContent).toContain('it');
   });
@@ -223,7 +243,7 @@ describe('rdt run — ts-basic fixture integration', () => {
   const BASIC_TEMP_DIR = resolve(process.cwd(), 'tmp-int-run-flow-basic');
 
   beforeAll(() => {
-    if (existsSync(BASIC_TEMP_DIR)) rmSync(BASIC_TEMP_DIR, { recursive: true });
+    safeRmDir(BASIC_TEMP_DIR);
     cpSync(resolve(FIXTURES_DIR, 'ts-basic'), BASIC_TEMP_DIR, {
       recursive: true,
       force: true,
@@ -231,7 +251,7 @@ describe('rdt run — ts-basic fixture integration', () => {
   });
 
   afterAll(() => {
-    if (existsSync(BASIC_TEMP_DIR)) rmSync(BASIC_TEMP_DIR, { recursive: true });
+    safeRmDir(BASIC_TEMP_DIR);
   });
 
   it('should complete a task on a working (passing tests) project', async () => {
@@ -279,7 +299,9 @@ describe('rdt run — python-basic fixture integration', () => {
   });
 
   it('should detect the Python project correctly', async () => {
-    const { detectProject } = await import('../../src/project-context/detect-project');
+    const { detectProject } = await import(
+      '../../src/project-context/detect-project'
+    );
     const info = detectProject(PYTHON_TEMP_DIR);
 
     // Name extracted from pyproject.toml [project] section
@@ -306,25 +328,40 @@ describe('rdt run — python-basic fixture integration', () => {
 
   it('should have correct Python project structure', async () => {
     // Verify Python source files exist
-    const addContent = readFileSync(join(PYTHON_TEMP_DIR, 'src', 'python_basic', 'add.py'), 'utf-8');
+    const addContent = readFileSync(
+      join(PYTHON_TEMP_DIR, 'src', 'python_basic', 'add.py'),
+      'utf-8',
+    );
     expect(addContent).toContain('def add(a: float, b: float) -> float:');
     expect(addContent).toContain('return a + b');
 
-    const greetContent = readFileSync(join(PYTHON_TEMP_DIR, 'src', 'python_basic', 'greet.py'), 'utf-8');
+    const greetContent = readFileSync(
+      join(PYTHON_TEMP_DIR, 'src', 'python_basic', 'greet.py'),
+      'utf-8',
+    );
     expect(greetContent).toContain('def greet(name: str) -> str:');
     expect(greetContent).toContain('return f"Hello, {name}!"');
 
     // Verify Python test files exist
-    const addTestContent = readFileSync(join(PYTHON_TEMP_DIR, 'tests', 'test_add.py'), 'utf-8');
+    const addTestContent = readFileSync(
+      join(PYTHON_TEMP_DIR, 'tests', 'test_add.py'),
+      'utf-8',
+    );
     expect(addTestContent).toContain('from python_basic.add import add');
     expect(addTestContent).toContain('test_add_two_positive_numbers');
 
-    const greetTestContent = readFileSync(join(PYTHON_TEMP_DIR, 'tests', 'test_greet.py'), 'utf-8');
+    const greetTestContent = readFileSync(
+      join(PYTHON_TEMP_DIR, 'tests', 'test_greet.py'),
+      'utf-8',
+    );
     expect(greetTestContent).toContain('from python_basic.greet import greet');
     expect(greetTestContent).toContain('test_greet_by_name');
 
     // Verify pyproject.toml exists
-    const pyprojectContent = readFileSync(join(PYTHON_TEMP_DIR, 'pyproject.toml'), 'utf-8');
+    const pyprojectContent = readFileSync(
+      join(PYTHON_TEMP_DIR, 'pyproject.toml'),
+      'utf-8',
+    );
     expect(pyprojectContent).toContain('name = "python-basic-fixture"');
     expect(pyprojectContent).toContain('requires-python = ">=3.10"');
   });

@@ -17,9 +17,13 @@ export function createOpenRouterProvider(
   const envVar = config.apiKeyEnv ?? OPENROUTER_API_KEY_ENV;
   const apiKey = process.env[envVar] ?? null;
 
-  return createOpenAIProvider(config.id, {
-    ...config,
-    baseUrl: config.baseUrl || OPENROUTER_BASE_URL,
-    apiKeyEnv: envVar,
-  }, apiKey);
+  return createOpenAIProvider(
+    config.id,
+    {
+      ...config,
+      baseUrl: config.baseUrl || OPENROUTER_BASE_URL,
+      apiKeyEnv: envVar,
+    },
+    apiKey,
+  );
 }

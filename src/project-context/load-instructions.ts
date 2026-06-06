@@ -23,4 +23,3 @@ function readIfExists(path: string): string | null {
     return null;
   }
 }
-

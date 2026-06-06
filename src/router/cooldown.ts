@@ -39,7 +39,7 @@ export function calculateCooldownMs(
   const base = errorCode === 'RATE_LIMITED' ? 30_000 : 10_000; // 30s for 429, 10s for others
   const maxMs = 300_000; // 5 min cap
 
-  const duration = Math.min(base * Math.pow(2, attempt), maxMs);
+  const duration = Math.min(base * 2 ** attempt, maxMs);
   return duration;
 }
 

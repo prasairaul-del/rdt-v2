@@ -27,14 +27,21 @@ export class ProjectStore extends SqliteStore {
     this.db.run(
       `INSERT OR REPLACE INTO project_info (root, name, language, package_manager, test_command, detected_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [info.root, info.name, info.language, info.packageManager, info.testCommand, info.detectedAt],
+      [
+        info.root,
+        info.name,
+        info.language,
+        info.packageManager,
+        info.testCommand,
+        info.detectedAt,
+      ],
     );
   }
 
   get(root: string): ProjectRecord | null {
-    const row = this.db.query(
-      `SELECT * FROM project_info WHERE root = ?`,
-    ).get(root) as Record<string, unknown> | null;
+    const row = this.db
+      .query('SELECT * FROM project_info WHERE root = ?')
+      .get(root) as Record<string, unknown> | null;
 
     if (!row) return null;
 
@@ -49,9 +56,9 @@ export class ProjectStore extends SqliteStore {
   }
 
   getAll(): ProjectRecord[] {
-    const rows = this.db.query(
-      `SELECT * FROM project_info ORDER BY detected_at DESC`,
-    ).all() as Record<string, unknown>[];
+    const rows = this.db
+      .query('SELECT * FROM project_info ORDER BY detected_at DESC')
+      .all() as Record<string, unknown>[];
 
     return rows.map((r) => ({
       root: r.root as string,

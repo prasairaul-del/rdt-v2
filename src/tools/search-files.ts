@@ -1,7 +1,7 @@
-import { readdirSync, statSync, readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { errorResult, successResult } from '../core/result';
 import type { Tool } from './types';
-import { successResult, errorResult } from '../core/result';
 
 export interface SearchFilesInput {
   pattern: string;
@@ -20,8 +20,14 @@ export interface SearchFilesOutput {
 }
 
 const DEFAULT_IGNORE = new Set([
-  'node_modules', '.git', 'dist', 'build', '.next', 'target',
-  'venv', '__pycache__',
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  'target',
+  'venv',
+  '__pycache__',
 ]);
 
 function shouldIgnore(relPath: string): boolean {
@@ -29,7 +35,8 @@ function shouldIgnore(relPath: string): boolean {
   for (const pattern of DEFAULT_IGNORE) {
     if (segments.some((s) => s === pattern)) return true;
   }
-  if (segments.some((s) => s.startsWith('.') && !s.startsWith('..'))) return true;
+  if (segments.some((s) => s.startsWith('.') && !s.startsWith('..')))
+    return true;
   return false;
 }
 
@@ -39,11 +46,23 @@ export const searchFilesTool: Tool<SearchFilesInput, SearchFilesOutput> = {
   inputSchema: {
     type: 'object',
     properties: {
-      pattern: { type: 'string', description: 'Search pattern (case-insensitive substring)' },
-      includeContent: { type: 'boolean', description: 'Search file contents too (default: false)' },
-      filePattern: { type: 'string', description: 'Only search files matching this glob/extension' },
+      pattern: {
+        type: 'string',
+        description: 'Search pattern (case-insensitive substring)',
+      },
+      includeContent: {
+        type: 'boolean',
+        description: 'Search file contents too (default: false)',
+      },
+      filePattern: {
+        type: 'string',
+        description: 'Only search files matching this glob/extension',
+      },
       maxResults: { type: 'number', description: 'Max results (default: 50)' },
-      cwd: { type: 'string', description: 'Working directory relative to project root' },
+      cwd: {
+        type: 'string',
+        description: 'Working directory relative to project root',
+      },
     },
     required: ['pattern'],
   },
@@ -83,7 +102,10 @@ export const searchFilesTool: Tool<SearchFilesInput, SearchFilesOutput> = {
           }
 
           // Check file pattern filter
-          if (input.filePattern && !file.includes(input.filePattern.replace(/\*/g, ''))) {
+          if (
+            input.filePattern &&
+            !file.includes(input.filePattern.replace(/\*/g, ''))
+          ) {
             continue;
           }
 

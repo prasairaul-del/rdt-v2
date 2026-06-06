@@ -1,13 +1,15 @@
 import { execSync } from 'node:child_process';
-import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { errorResult, successResult } from '../core/result';
 import type { Tool } from './types';
-import { successResult, errorResult } from '../core/result';
 
 export interface GitDiffInput {
   staged?: boolean;
   path?: string;
   contextLines?: number;
+  /** Override working directory (avoids process.cwd() dependency) */
+  cwd?: string;
 }
 
 export interface GitDiffOutput {
@@ -22,31 +24,48 @@ export const gitDiffTool: Tool<GitDiffInput, GitDiffOutput> = {
   inputSchema: {
     type: 'object',
     properties: {
-      staged: { type: 'boolean', description: 'Show staged diff instead of unstaged' },
+      staged: {
+        type: 'boolean',
+        description: 'Show staged diff instead of unstaged',
+      },
       path: { type: 'string', description: 'Filter to specific path' },
-      contextLines: { type: 'number', description: 'Number of context lines (default: 3)' },
+      contextLines: {
+        type: 'number',
+        description: 'Number of context lines (default: 3)',
+      },
+      cwd: {
+        type: 'string',
+        description: 'Working directory for git operations',
+      },
     },
   },
 
   async execute(input: GitDiffInput) {
     try {
-      const cwd = process.cwd();
+      const cwd = input.cwd ?? process.cwd();
       if (!existsSync(resolve(cwd, '.git'))) {
-        return errorResult('NOT_FOUND', 'Not a git repository. Cannot show diff.', [
-          'Initialize a git repository with git init',
-          'Check your working directory',
-        ]);
+        return errorResult(
+          'NOT_FOUND',
+          'Not a git repository. Cannot show diff.',
+          [
+            'Initialize a git repository with git init',
+            'Check your working directory',
+          ],
+        );
       }
 
       const ctxLines = input.contextLines ?? 3;
       const flag = input.staged ? '--staged' : '';
       const pathFilter = input.path || '.';
 
-      const diff = execSync(`git diff ${flag} -U${ctxLines} -- "${pathFilter}"`, {
-        cwd,
-        encoding: 'utf-8',
-        maxBuffer: 10 * 1024 * 1024,
-      }).trim();
+      const diff = execSync(
+        `git diff ${flag} -U${ctxLines} -- "${pathFilter}"`,
+        {
+          cwd,
+          encoding: 'utf-8',
+          maxBuffer: 10 * 1024 * 1024,
+        },
+      ).trim();
 
       const filesChanged = diff ? (diff.match(/^diff --git/g) || []).length : 0;
 

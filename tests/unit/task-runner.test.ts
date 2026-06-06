@@ -1,15 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TaskRunner } from '../../src/core/task-runner';
-import { createTaskState, transitionState, addTaskError } from '../../src/core/task-state';
+import {
+  addTaskError,
+  createTaskState,
+  transitionState,
+} from '../../src/core/task-state';
 import type { TaskState } from '../../src/core/task-state';
 
 // Mock bun:sqlite since vitest can't resolve Bun built-in modules.
 // The TaskRunner creates a TaskLogStore which depends on bun:sqlite.
 vi.mock('bun:sqlite', () => ({
   Database: class MockDatabase {
-    constructor(_path: string) {}
     exec(_sql: string) {}
     run(_sql: string, ..._params: unknown[]) {}
     query(_sql: string) {
@@ -42,7 +45,13 @@ vi.mock('../../src/tools/test-runner', () => ({
     inputSchema: { type: 'object', properties: {} },
     execute: async () => ({
       success: true,
-      data: { command: 'echo mocked', stdout: 'Tests passed', stderr: '', exitCode: 0, passed: true },
+      data: {
+        command: 'echo mocked',
+        stdout: 'Tests passed',
+        stderr: '',
+        exitCode: 0,
+        passed: true,
+      },
     }),
   },
 }));
@@ -178,7 +187,9 @@ describe('createTaskState utility', () => {
   });
 
   it('should generate unique IDs', () => {
-    const ids = new Set(Array.from({ length: 100 }, () => createTaskState('test').id));
+    const ids = new Set(
+      Array.from({ length: 100 }, () => createTaskState('test').id),
+    );
     expect(ids.size).toBe(100);
   });
 });
@@ -191,9 +202,15 @@ describe('transitionState', () => {
     const path: Array<{ from: string; to: string }> = [];
 
     const steps: string[] = [
-      'capturing_baseline', 'loading_context', 'scanning_repo',
-      'selecting_files', 'planning', 'editing', 'reviewing',
-      'finalizing', 'done',
+      'capturing_baseline',
+      'loading_context',
+      'scanning_repo',
+      'selecting_files',
+      'planning',
+      'editing',
+      'reviewing',
+      'finalizing',
+      'done',
     ];
 
     for (const step of steps) {

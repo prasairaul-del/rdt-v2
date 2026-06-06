@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { errorResult, successResult } from '../core/result';
 import type { Tool } from './types';
-import { successResult, errorResult } from '../core/result';
 
 export interface ListFilesInput {
   path?: string;
@@ -16,20 +16,48 @@ export interface ListFilesOutput {
 }
 
 const DEFAULT_IGNORE = new Set([
-  'node_modules', '.git', 'dist', 'build', '.next', 'target',
-  'venv', '__pycache__', '.rdt/tasks', '.rdt/cache', '.rdt/logs',
-  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock',
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  'target',
+  'venv',
+  '__pycache__',
+  '.rdt/tasks',
+  '.rdt/cache',
+  '.rdt/logs',
+  'package-lock.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+  'bun.lock',
 ]);
 
-const ALLOWED_HIDDEN = new Set(['.github', '.vscode', '.rdt', '.husky', '.env']);
+const ALLOWED_HIDDEN = new Set([
+  '.github',
+  '.vscode',
+  '.rdt',
+  '.husky',
+  '.env',
+]);
 
 function shouldIgnore(relPath: string): boolean {
   const segments = relPath.split(/[/\\]/);
   for (const pattern of DEFAULT_IGNORE) {
-    if (relPath === pattern || relPath.startsWith(pattern + '/') || relPath.startsWith(pattern + '\\')) return true;
+    if (
+      relPath === pattern ||
+      relPath.startsWith(`${pattern}/`) ||
+      relPath.startsWith(`${pattern}\\`)
+    )
+      return true;
     if (segments.some((s) => s === pattern)) return true;
   }
-  if (segments.some((s) => s.startsWith('.') && !s.startsWith('..') && !ALLOWED_HIDDEN.has(s))) return true;
+  if (
+    segments.some(
+      (s) => s.startsWith('.') && !s.startsWith('..') && !ALLOWED_HIDDEN.has(s),
+    )
+  )
+    return true;
   return false;
 }
 
@@ -39,17 +67,30 @@ export const listFilesTool: Tool<ListFilesInput, ListFilesOutput> = {
   inputSchema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Relative directory path to list (default: project root)' },
-      maxDepth: { type: 'number', description: 'Maximum recursion depth (default: unlimited)' },
-      includeHidden: { type: 'boolean', description: 'Include hidden files (default: false)' },
+      path: {
+        type: 'string',
+        description: 'Relative directory path to list (default: project root)',
+      },
+      maxDepth: {
+        type: 'number',
+        description: 'Maximum recursion depth (default: unlimited)',
+      },
+      includeHidden: {
+        type: 'boolean',
+        description: 'Include hidden files (default: false)',
+      },
     },
   },
 
   async execute(input: ListFilesInput) {
     try {
       const root = resolve(process.cwd(), input.path || '.');
-      const maxDepth = input.maxDepth ?? Infinity;
-      const entries: Array<{ path: string; type: 'file' | 'dir'; size: number }> = [];
+      const maxDepth = input.maxDepth ?? Number.POSITIVE_INFINITY;
+      const entries: Array<{
+        path: string;
+        type: 'file' | 'dir';
+        size: number;
+      }> = [];
       let count = 0;
 
       function walk(dir: string, depth: number) {

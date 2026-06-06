@@ -1,13 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, lstatSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sandbox } from '../../src/tools/sandbox';
 
 // Mock bun:sqlite since vitest runs in Node.js
 vi.mock('bun:sqlite', () => ({
   Database: class MockDatabase {
-    constructor(_path: string) {}
     exec(_sql: string) {}
     run(_sql: string, ..._params: unknown[]) {}
     query(_sql: string) {
@@ -30,12 +36,24 @@ describe('User-Space Shadow Directory Sandbox', () => {
 
     // Add some source files
     mkdirSync(join(TEST_HOST_DIR, 'src'));
-    writeFileSync(join(TEST_HOST_DIR, 'src', 'index.ts'), 'console.log("hello");', 'utf-8');
-    writeFileSync(join(TEST_HOST_DIR, 'package.json'), JSON.stringify({ name: 'test-app' }), 'utf-8');
+    writeFileSync(
+      join(TEST_HOST_DIR, 'src', 'index.ts'),
+      'console.log("hello");',
+      'utf-8',
+    );
+    writeFileSync(
+      join(TEST_HOST_DIR, 'package.json'),
+      JSON.stringify({ name: 'test-app' }),
+      'utf-8',
+    );
 
     // Add a mock large dependency directory
     mkdirSync(join(TEST_HOST_DIR, 'node_modules'));
-    writeFileSync(join(TEST_HOST_DIR, 'node_modules', 'dep-file.txt'), 'dependency content', 'utf-8');
+    writeFileSync(
+      join(TEST_HOST_DIR, 'node_modules', 'dep-file.txt'),
+      'dependency content',
+      'utf-8',
+    );
   });
 
   afterEach(async () => {
@@ -57,12 +75,17 @@ describe('User-Space Shadow Directory Sandbox', () => {
     // Verify source files are copied
     const sandboxIndexFile = join(sandbox.sandboxPath, 'src', 'index.ts');
     expect(existsSync(sandboxIndexFile)).toBe(true);
-    expect(readFileSync(sandboxIndexFile, 'utf-8')).toBe('console.log("hello");');
+    expect(readFileSync(sandboxIndexFile, 'utf-8')).toBe(
+      'console.log("hello");',
+    );
 
     // Verify node_modules is symlinked/junctioned
     const sandboxNodeModules = join(sandbox.sandboxPath, 'node_modules');
     expect(existsSync(sandboxNodeModules)).toBe(true);
-    expect(lstatSync(sandboxNodeModules).isSymbolicLink() || process.platform === 'win32').toBe(true);
+    expect(
+      lstatSync(sandboxNodeModules).isSymbolicLink() ||
+        process.platform === 'win32',
+    ).toBe(true);
 
     // Verify read access to the symlinked dependency file
     const sandboxDepFile = join(sandboxNodeModules, 'dep-file.txt');
@@ -81,7 +104,9 @@ describe('User-Space Shadow Directory Sandbox', () => {
     writeFileSync(sandboxIndexFile, 'console.log("edited");', 'utf-8');
 
     // Verify sandbox is modified but host remains unchanged
-    expect(readFileSync(sandboxIndexFile, 'utf-8')).toBe('console.log("edited");');
+    expect(readFileSync(sandboxIndexFile, 'utf-8')).toBe(
+      'console.log("edited");',
+    );
     expect(readFileSync(hostIndexFile, 'utf-8')).toBe('console.log("hello");');
 
     // Create a new file inside the sandbox
@@ -121,6 +146,8 @@ describe('User-Space Shadow Directory Sandbox', () => {
     expect(existsSync(TEST_HOST_DIR)).toBe(true);
     expect(existsSync(join(TEST_HOST_DIR, 'src', 'index.ts'))).toBe(true);
     expect(existsSync(join(TEST_HOST_DIR, 'node_modules'))).toBe(true);
-    expect(existsSync(join(TEST_HOST_DIR, 'node_modules', 'dep-file.txt'))).toBe(true);
+    expect(
+      existsSync(join(TEST_HOST_DIR, 'node_modules', 'dep-file.txt')),
+    ).toBe(true);
   });
 });

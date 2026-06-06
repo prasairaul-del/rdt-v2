@@ -1,13 +1,15 @@
 import { Command } from 'commander';
 import { loadConfig } from '../../config/load-config';
-import { ProviderRouter } from '../../router/provider-router';
-import { checkCooldown } from '../../router/cooldown';
-import { checkRateLimit } from '../../router/rate-limit-state';
 import type { ProviderModelState } from '../../providers/types';
+import { checkCooldown } from '../../router/cooldown';
+import { ProviderRouter } from '../../router/provider-router';
+import { checkRateLimit } from '../../router/rate-limit-state';
 
 export function createProvidersCommand(): Command {
   return new Command('providers')
-    .description('Show provider configuration, runtime state, and test connectivity')
+    .description(
+      'Show provider configuration, runtime state, and test connectivity',
+    )
     .option('-t, --test', 'Test each provider by listing models via API')
     .option('-v, --verbose', 'Show detailed model-level state')
     .action(async (options: { test?: boolean; verbose?: boolean }) => {
@@ -53,55 +55,77 @@ export function createProvidersCommand(): Command {
 
         if (p.api_key_env) {
           if (apiKey) {
-            console.log(`    API key (${p.api_key_env}): ${apiKey.slice(0, 8)}...`);
+            console.log(
+              `    API key (${p.api_key_env}): ${apiKey.slice(0, 8)}...`,
+            );
           } else {
-            console.log(`    API key (${p.api_key_env}): \x1b[31mNOT SET\x1b[0m`);
+            console.log(
+              `    API key (${p.api_key_env}): \x1b[31mNOT SET\x1b[0m`,
+            );
           }
         } else {
-          console.log(`    API key:       none required`);
+          console.log('    API key:       none required');
         }
 
         // Show models
         if (p.models.length > 0) {
-          console.log(`    Models:`);
+          console.log('    Models:');
           for (const m of p.models) {
             const state = allModelStates.find(
               (s) => s.modelId === m.id && s.providerId === p.id,
             );
-            const statusBadge = getModelStatusBadge(p.enabled, m.tier !== 'disabled', state);
+            const statusBadge = getModelStatusBadge(
+              p.enabled,
+              m.tier !== 'disabled',
+              state,
+            );
             console.log(`      - ${m.id} (${m.model})${statusBadge}`);
-            console.log(`        Quality: ${m.quality}, Cost: ${m.cost}, Tier: ${m.tier}`);
+            console.log(
+              `        Quality: ${m.quality}, Cost: ${m.cost}, Tier: ${m.tier}`,
+            );
 
             if (options.verbose && state) {
               const cooldown = checkCooldown(state);
               const rateLimit = checkRateLimit(state);
 
-              console.log(`        Runtime state:`);
-              console.log(`          Requests/min:  ${state.requestsThisMinute}`);
+              console.log('        Runtime state:');
+              console.log(
+                `          Requests/min:  ${state.requestsThisMinute}`,
+              );
               console.log(`          Requests/day:  ${state.requestsToday}`);
-              console.log(`          RPM limit:     ${state.rpmLimit ?? 'unlimited'}`);
-              console.log(`          Daily limit:   ${state.dailyLimit ?? 'unlimited'}`);
+              console.log(
+                `          RPM limit:     ${state.rpmLimit ?? 'unlimited'}`,
+              );
+              console.log(
+                `          Daily limit:   ${state.dailyLimit ?? 'unlimited'}`,
+              );
 
               if (cooldown.inCooldown) {
                 const secs = Math.round((cooldown.remainingMs ?? 0) / 1000);
-                console.log(`          Cooldown:      \x1b[33m${secs}s remaining\x1b[0m`);
+                console.log(
+                  `          Cooldown:      \x1b[33m${secs}s remaining\x1b[0m`,
+                );
               } else {
-                console.log(`          Cooldown:      none`);
+                console.log('          Cooldown:      none');
               }
 
               if (state.lastErrorAt) {
-                console.log(`          Last error:    ${state.lastErrorCode ?? 'UNKNOWN'} at ${state.lastErrorAt}`);
+                console.log(
+                  `          Last error:    ${state.lastErrorCode ?? 'UNKNOWN'} at ${state.lastErrorAt}`,
+                );
               }
 
               if (rateLimit.withinLimits) {
-                console.log(`          Rate limit:    OK`);
+                console.log('          Rate limit:    OK');
               } else {
-                console.log(`          Rate limit:    \x1b[33m${rateLimit.reason}\x1b[0m`);
+                console.log(
+                  `          Rate limit:    \x1b[33m${rateLimit.reason}\x1b[0m`,
+                );
               }
             }
           }
         } else {
-          console.log(`    Models:        (none configured)`);
+          console.log('    Models:        (none configured)');
         }
       }
 
@@ -123,7 +147,9 @@ export function createProvidersCommand(): Command {
 
           const apiKey = p.api_key_env ? process.env[p.api_key_env] : null;
           if (p.api_key_env && !apiKey) {
-            console.log(`  ${p.id}: \x1b[31mNO API KEY\x1b[0m — set ${p.api_key_env} env var`);
+            console.log(
+              `  ${p.id}: \x1b[31mNO API KEY\x1b[0m — set ${p.api_key_env} env var`,
+            );
             continue;
           }
 
@@ -133,7 +159,7 @@ export function createProvidersCommand(): Command {
             'Content-Type': 'application/json',
           };
           if (apiKey) {
-            headers['Authorization'] = `Bearer ${apiKey}`;
+            headers.Authorization = `Bearer ${apiKey}`;
           }
 
           try {
@@ -148,19 +174,25 @@ export function createProvidersCommand(): Command {
             clearTimeout(timeout);
 
             if (response.ok) {
-              const data = await response.json() as { data?: Array<{ id: string }> };
+              const data = (await response.json()) as {
+                data?: Array<{ id: string }>;
+              };
               const modelCount = data.data?.length ?? 0;
               console.log(`\x1b[32mOK\x1b[0m (${modelCount} models available)`);
             } else if (response.status === 401) {
-              console.log(`\x1b[31mUNAUTHORIZED\x1b[0m (HTTP ${response.status})`);
+              console.log(
+                `\x1b[31mUNAUTHORIZED\x1b[0m (HTTP ${response.status})`,
+              );
             } else if (response.status === 429) {
-              console.log(`\x1b[33mRATE LIMITED\x1b[0m (HTTP ${response.status})`);
+              console.log(
+                `\x1b[33mRATE LIMITED\x1b[0m (HTTP ${response.status})`,
+              );
             } else {
               console.log(`\x1b[31mFAILED\x1b[0m (HTTP ${response.status})`);
             }
           } catch (err) {
             if ((err as Error).name === 'AbortError') {
-              console.log(`\x1b[31mTIMEOUT\x1b[0m (10s)`);
+              console.log('\x1b[31mTIMEOUT\x1b[0m (10s)');
             } else {
               console.log(`\x1b[31mERROR\x1b[0m (${(err as Error).message})`);
             }
@@ -207,7 +239,7 @@ function getModelStatusBadge(
   }
 
   if (state.lastErrorAt) {
-    return ' \x1b[91m[last error: ' + state.lastErrorCode + ']\x1b[0m';
+    return ` \x1b[91m[last error: ${state.lastErrorCode}]\x1b[0m`;
   }
 
   return ' \x1b[32m[ok]\x1b[0m';

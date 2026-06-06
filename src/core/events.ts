@@ -12,7 +12,8 @@ export type TaskEventType =
   | 'task:error'
   | 'task:progress'
   | 'task:completed'
-  | 'task:failed';
+  | 'task:failed'
+  | 'task:log';
 
 export interface TaskEvent {
   type: TaskEventType;
@@ -31,7 +32,7 @@ export class TaskEventBus {
     if (!this.listeners.has(type)) {
       this.listeners.set(type, new Set());
     }
-    this.listeners.get(type)!.add(listener);
+    this.listeners.get(type)?.add(listener);
     return () => this.listeners.get(type)?.delete(listener);
   }
 
@@ -40,7 +41,11 @@ export class TaskEventBus {
     return () => this.globalListeners.delete(listener);
   }
 
-  emit(type: TaskEventType, taskId: string, data?: Record<string, unknown>): void {
+  emit(
+    type: TaskEventType,
+    taskId: string,
+    data?: Record<string, unknown>,
+  ): void {
     const event: TaskEvent = {
       type,
       taskId,
@@ -50,12 +55,20 @@ export class TaskEventBus {
 
     // Notify type-specific listeners
     this.listeners.get(type)?.forEach((fn) => {
-      try { fn(event); } catch { /* swallow */ }
+      try {
+        fn(event);
+      } catch {
+        /* swallow */
+      }
     });
 
     // Notify global listeners
     this.globalListeners.forEach((fn) => {
-      try { fn(event); } catch { /* swallow */ }
+      try {
+        fn(event);
+      } catch {
+        /* swallow */
+      }
     });
   }
 

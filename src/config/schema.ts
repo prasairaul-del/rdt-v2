@@ -44,7 +44,12 @@ export interface ContextBudgetConfig {
 
 export interface ProviderConfig {
   id: string;
-  type: 'openai_compatible' | 'ollama';
+  type:
+    | 'openai_compatible'
+    | 'ollama'
+    | 'anthropic'
+    | 'google'
+    | 'google_vertex';
   base_url: string;
   api_key_env?: string;
   enabled: boolean;

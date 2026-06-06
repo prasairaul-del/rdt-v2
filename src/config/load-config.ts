@@ -1,8 +1,8 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { dump, load } from 'js-yaml';
-import type { RdtConfig } from './schema';
 import { createDefaultConfig } from './defaults';
+import type { RdtConfig } from './schema';
 
 export interface ConfigResult {
   config: RdtConfig;
@@ -55,15 +55,24 @@ export function writeConfig(projectRoot: string, config: RdtConfig): void {
   writeFileSync(configPath, yaml, 'utf-8');
 }
 
-function mergeConfig(defaults: RdtConfig, loaded: Partial<RdtConfig>): RdtConfig {
+function mergeConfig(
+  defaults: RdtConfig,
+  loaded: Partial<RdtConfig>,
+): RdtConfig {
   return {
     ...defaults,
     ...loaded,
     project: { ...defaults.project, ...(loaded.project || {}) },
     runtime: { ...defaults.runtime, ...(loaded.runtime || {}) },
-    context_budget: { ...defaults.context_budget, ...(loaded.context_budget || {}) },
+    context_budget: {
+      ...defaults.context_budget,
+      ...(loaded.context_budget || {}),
+    },
     providers: loaded.providers || defaults.providers,
-    model_policies: { ...defaults.model_policies, ...(loaded.model_policies || {}) },
+    model_policies: {
+      ...defaults.model_policies,
+      ...(loaded.model_policies || {}),
+    },
     agents: { ...defaults.agents, ...(loaded.agents || {}) },
   };
 }

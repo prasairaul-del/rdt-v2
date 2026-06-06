@@ -1,6 +1,22 @@
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { join, resolve } from 'node:path';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { createInitCommand } from '../../src/cli/commands/init';
 import { createStatusCommand } from '../../src/cli/commands/status';
 
@@ -183,7 +199,9 @@ describe('rdt init — fixture integration', () => {
     // First init
     const cmd1 = createInitCommand();
     cmd1.exitOverride();
-    await cmd1.parseAsync(['node', 'test', 'init', '--force'], { from: 'user' });
+    await cmd1.parseAsync(['node', 'test', 'init', '--force'], {
+      from: 'user',
+    });
 
     // Modify AGENTS.md
     const agentsPath = join(TEMP_DIR, 'AGENTS.md');
@@ -221,7 +239,9 @@ describe('rdt status — fixture integration', () => {
     // Ensure init has been run
     const initCmd = createInitCommand();
     initCmd.exitOverride();
-    await initCmd.parseAsync(['node', 'test', 'init', '--force'], { from: 'user' });
+    await initCmd.parseAsync(['node', 'test', 'init', '--force'], {
+      from: 'user',
+    });
 
     logOutput = [];
     const statusCmd = createStatusCommand();
@@ -239,7 +259,9 @@ describe('rdt status — fixture integration', () => {
   it('should detect test and build commands', async () => {
     const initCmd = createInitCommand();
     initCmd.exitOverride();
-    await initCmd.parseAsync(['node', 'test', 'init', '--force'], { from: 'user' });
+    await initCmd.parseAsync(['node', 'test', 'init', '--force'], {
+      from: 'user',
+    });
 
     logOutput = [];
     const statusCmd = createStatusCommand();
@@ -254,7 +276,9 @@ describe('rdt status — fixture integration', () => {
   it('should show provider configuration', async () => {
     const initCmd = createInitCommand();
     initCmd.exitOverride();
-    await initCmd.parseAsync(['node', 'test', 'init', '--force'], { from: 'user' });
+    await initCmd.parseAsync(['node', 'test', 'init', '--force'], {
+      from: 'user',
+    });
 
     logOutput = [];
     const statusCmd = createStatusCommand();
@@ -271,7 +295,9 @@ describe('rdt status — fixture integration', () => {
   it('should show agent policies', async () => {
     const initCmd = createInitCommand();
     initCmd.exitOverride();
-    await initCmd.parseAsync(['node', 'test', 'init', '--force'], { from: 'user' });
+    await initCmd.parseAsync(['node', 'test', 'init', '--force'], {
+      from: 'user',
+    });
 
     logOutput = [];
     const statusCmd = createStatusCommand();

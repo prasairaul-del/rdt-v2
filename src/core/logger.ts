@@ -2,6 +2,7 @@
  * Structured logger for the RDT v2 task runner.
  * Writes to stdout for live view and optionally to a file.
  */
+import { globalEventBus } from './events';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -54,7 +55,11 @@ export class TaskLogger {
     this.log('error', message, data);
   }
 
-  private log(level: LogLevel, message: string, data?: Record<string, unknown>): void {
+  private log(
+    level: LogLevel,
+    message: string,
+    data?: Record<string, unknown>,
+  ): void {
     if (!this.shouldLog(level)) return;
 
     const entry: LogEntry = {
@@ -68,10 +73,16 @@ export class TaskLogger {
     this.entries.push(entry);
     this.writeToConsole(entry);
     this.writeToFile(entry);
+
+    if (this.taskId) {
+      globalEventBus.emit('task:log', this.taskId, { level, message, data });
+    }
   }
 
   private shouldLog(level: LogLevel): boolean {
-    return this.LEVEL_ORDER.indexOf(level) >= this.LEVEL_ORDER.indexOf(this.minLevel);
+    return (
+      this.LEVEL_ORDER.indexOf(level) >= this.LEVEL_ORDER.indexOf(this.minLevel)
+    );
   }
 
   private writeToConsole(entry: LogEntry): void {
@@ -126,10 +137,14 @@ export class TaskLogger {
 
 function getLevelPrefix(level: LogLevel): string {
   switch (level) {
-    case 'debug': return '  DEBUG';
-    case 'info':  return '   INFO';
-    case 'warn':  return '   WARN';
-    case 'error': return '  ERROR';
+    case 'debug':
+      return '  DEBUG';
+    case 'info':
+      return '   INFO';
+    case 'warn':
+      return '   WARN';
+    case 'error':
+      return '  ERROR';
   }
 }
 

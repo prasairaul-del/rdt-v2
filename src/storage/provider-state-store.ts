@@ -8,13 +8,30 @@ export interface ProviderStateSnapshot {
 export class ProviderStateStore {
   private states = new Map<string, ProviderModelState>();
   /** Minute-boundary counters — keyed by `${providerId}:${modelId}` */
-  private minuteCounters = new Map<string, { windowStart: number; count: number }>();
+  private minuteCounters = new Map<
+    string,
+    { windowStart: number; count: number }
+  >();
   /** Daily counters — keyed by `${providerId}:${modelId}` */
   private dailyCounters = new Map<string, { date: string; count: number }>();
 
   // ── Registration ───────────────────────────────────────────────
 
-  register(configs: Array<{ providerId: string; modelId: string; modelName?: string; enabled: boolean; rpmLimit?: number; dailyLimit?: number; quality: 'low' | 'medium' | 'high'; cost: 'free' | 'low' | 'medium' | 'high'; supportsTools: boolean | 'auto'; supportsJson: boolean | 'auto'; contextWindow?: number | 'auto' }>): void {
+  register(
+    configs: Array<{
+      providerId: string;
+      modelId: string;
+      modelName?: string;
+      enabled: boolean;
+      rpmLimit?: number;
+      dailyLimit?: number;
+      quality: 'low' | 'medium' | 'high';
+      cost: 'free' | 'low' | 'medium' | 'high';
+      supportsTools: boolean | 'auto';
+      supportsJson: boolean | 'auto';
+      contextWindow?: number | 'auto';
+    }>,
+  ): void {
     for (const c of configs) {
       const key = this.key(c.providerId, c.modelId);
       if (!this.states.has(key)) {
@@ -77,7 +94,12 @@ export class ProviderStateStore {
     s.lastErrorCode = undefined;
   }
 
-  recordError(providerId: string, modelId: string, errorCode: string, cooldownMs?: number): void {
+  recordError(
+    providerId: string,
+    modelId: string,
+    errorCode: string,
+    cooldownMs?: number,
+  ): void {
     const s = this.states.get(this.key(providerId, modelId));
     if (!s) return;
 
@@ -111,13 +133,23 @@ export class ProviderStateStore {
     return `${providerId}:${modelId}`;
   }
 
-  private getMinuteCount(providerId: string, modelId: string, now: number): number {
-    const entry = this.minuteCounters.get(this.minuteCounterKey(providerId, modelId));
+  private getMinuteCount(
+    providerId: string,
+    modelId: string,
+    now: number,
+  ): number {
+    const entry = this.minuteCounters.get(
+      this.minuteCounterKey(providerId, modelId),
+    );
     if (!entry || now - entry.windowStart > 60_000) return 0;
     return entry.count;
   }
 
-  private bumpMinuteCounter(providerId: string, modelId: string, now: number): void {
+  private bumpMinuteCounter(
+    providerId: string,
+    modelId: string,
+    now: number,
+  ): void {
     const key = this.minuteCounterKey(providerId, modelId);
     const entry = this.minuteCounters.get(key);
     if (!entry || now - entry.windowStart > 60_000) {
@@ -127,14 +159,24 @@ export class ProviderStateStore {
     }
   }
 
-  private getDailyCount(providerId: string, modelId: string, now: number): number {
+  private getDailyCount(
+    providerId: string,
+    modelId: string,
+    now: number,
+  ): number {
     const today = new Date(now).toISOString().slice(0, 10); // YYYY-MM-DD
-    const entry = this.dailyCounters.get(this.minuteCounterKey(providerId, modelId));
+    const entry = this.dailyCounters.get(
+      this.minuteCounterKey(providerId, modelId),
+    );
     if (!entry || entry.date !== today) return 0;
     return entry.count;
   }
 
-  private bumpDailyCounter(providerId: string, modelId: string, now: number): void {
+  private bumpDailyCounter(
+    providerId: string,
+    modelId: string,
+    now: number,
+  ): void {
     const key = this.minuteCounterKey(providerId, modelId);
     const today = new Date(now).toISOString().slice(0, 10);
     const entry = this.dailyCounters.get(key);

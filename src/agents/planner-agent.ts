@@ -1,7 +1,7 @@
-import type { AgentInput, AgentOutput, Plan, SelectedFile } from './types';
-import type { Tool } from '../tools/types';
-import type { ProviderRouter } from '../router/provider-router';
 import type { CompletionMessage } from '../providers/types';
+import type { ProviderRouter } from '../router/provider-router';
+import type { Tool } from '../tools/types';
+import type { AgentInput, AgentOutput, Plan, SelectedFile } from './types';
 
 export interface PlannerAgentConfig {
   router: ProviderRouter;
@@ -56,7 +56,10 @@ Keep steps concrete and actionable.`,
             content: `Task: ${request}
 
 Selected files context:
-${(input.files ?? []).slice(0, 10).map((f) => `- ${f.path}: ${f.reason}`).join('\n')}`,
+${(input.files ?? [])
+  .slice(0, 10)
+  .map((f) => `- ${f.path}: ${f.reason}`)
+  .join('\n')}`,
           },
         ];
 
@@ -69,7 +72,8 @@ ${(input.files ?? []).slice(0, 10).map((f) => `- ${f.path}: ${f.reason}`).join('
         if (routerResult.success && routerResult.response) {
           const content = routerResult.response.content;
           // Record provider usage
-          const successAttempt = routerResult.attempts[routerResult.attempts.length - 1];
+          const successAttempt =
+            routerResult.attempts[routerResult.attempts.length - 1];
           task.providerUsage.push({
             agentName: 'planner',
             providerId: successAttempt?.providerId ?? 'unknown',
@@ -82,10 +86,20 @@ ${(input.files ?? []).slice(0, 10).map((f) => `- ${f.path}: ${f.reason}`).join('
           const jsonMatch = content.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             try {
-              const parsed = JSON.parse(jsonMatch[0]) as { summary?: string; steps?: Array<{ description: string; targetFiles?: string[]; risk?: string }>; testPlan?: string[]; risks?: string[] };
+              const parsed = JSON.parse(jsonMatch[0]) as {
+                summary?: string;
+                steps?: Array<{
+                  description: string;
+                  targetFiles?: string[];
+                  risk?: string;
+                }>;
+                testPlan?: string[];
+                risks?: string[];
+              };
               if (parsed.steps && parsed.steps.length > 0) {
                 const plan: Plan = {
-                  summary: parsed.summary ?? `Plan: ${parsed.steps.length} step(s)`,
+                  summary:
+                    parsed.summary ?? `Plan: ${parsed.steps.length} step(s)`,
                   steps: parsed.steps.map((s, i) => ({
                     id: `step_${i + 1}`,
                     description: s.description,
@@ -115,7 +129,11 @@ ${(input.files ?? []).slice(0, 10).map((f) => `- ${f.path}: ${f.reason}`).join('
     }
 
     // Fallback: build a structured plan heuristically
-    const plan = buildPlan(request, project.repoMap.entries.length, project.repoMap.root);
+    const plan = buildPlan(
+      request,
+      project.repoMap.entries.length,
+      project.repoMap.root,
+    );
 
     return {
       success: true,
@@ -138,7 +156,19 @@ ${(input.files ?? []).slice(0, 10).map((f) => `- ${f.path}: ${f.reason}`).join('
 
 function buildPlan(request: string, repoSize: number, _root: string): Plan {
   // Extract potential file paths and key actions from the request
-  const actionWords = ['fix', 'add', 'update', 'refactor', 'remove', 'rename', 'move', 'create', 'delete', 'change', 'implement'];
+  const actionWords = [
+    'fix',
+    'add',
+    'update',
+    'refactor',
+    'remove',
+    'rename',
+    'move',
+    'create',
+    'delete',
+    'change',
+    'implement',
+  ];
   const actions: string[] = [];
   const targetFiles: string[] = [];
 
@@ -160,7 +190,8 @@ function buildPlan(request: string, repoSize: number, _root: string): Plan {
   }
 
   // Detect if tests are involved
-  const involvesTests = requestLower.includes('test') || requestLower.includes('spec');
+  const involvesTests =
+    requestLower.includes('test') || requestLower.includes('spec');
 
   const steps: Plan['steps'] = [];
   let stepId = 0;
@@ -168,9 +199,10 @@ function buildPlan(request: string, repoSize: number, _root: string): Plan {
   // Step 1: Understand the code
   steps.push({
     id: `step_${++stepId}`,
-    description: actions.length > 0
-      ? `Read and understand the code to ${actions.join(', ')}`
-      : 'Read and understand the relevant code',
+    description:
+      actions.length > 0
+        ? `Read and understand the code to ${actions.join(', ')}`
+        : 'Read and understand the relevant code',
     targetFiles: [...targetFiles],
     risk: 'low' as const,
   });
@@ -178,9 +210,10 @@ function buildPlan(request: string, repoSize: number, _root: string): Plan {
   // Step 2: Plan the changes
   steps.push({
     id: `step_${++stepId}`,
-    description: targetFiles.length > 0
-      ? `Plan changes to ${targetFiles.join(', ')}`
-      : 'Plan the necessary changes',
+    description:
+      targetFiles.length > 0
+        ? `Plan changes to ${targetFiles.join(', ')}`
+        : 'Plan the necessary changes',
     targetFiles: [...targetFiles],
     risk: 'low' as const,
   });
@@ -195,7 +228,12 @@ function buildPlan(request: string, repoSize: number, _root: string): Plan {
     });
   }
 
-  if (actions.includes('fix') || actions.includes('update') || actions.includes('refactor') || actions.includes('change')) {
+  if (
+    actions.includes('fix') ||
+    actions.includes('update') ||
+    actions.includes('refactor') ||
+    actions.includes('change')
+  ) {
     steps.push({
       id: `step_${++stepId}`,
       description: 'Apply targeted edits to the identified files',
@@ -224,15 +262,24 @@ function buildPlan(request: string, repoSize: number, _root: string): Plan {
   });
 
   return {
-    summary: actions.length > 0
-      ? `${actions[0].charAt(0).toUpperCase() + actions[0].slice(1)} ${targetFiles.length > 0 ? targetFiles.join(', ') : 'relevant files'} — ${stepId} step plan`
-      : `Implement the requested changes — ${stepId} step plan`,
+    summary:
+      actions.length > 0
+        ? `${actions[0].charAt(0).toUpperCase() + actions[0].slice(1)} ${targetFiles.length > 0 ? targetFiles.join(', ') : 'relevant files'} — ${stepId} step plan`
+        : `Implement the requested changes — ${stepId} step plan`,
     steps,
     testPlan: involvesTests
-      ? ['Run the existing tests to verify no regressions', 'Check if new tests are needed for the changes']
-      : ['Run typecheck to ensure compilation', 'Run existing tests to verify no regressions'],
+      ? [
+          'Run the existing tests to verify no regressions',
+          'Check if new tests are needed for the changes',
+        ]
+      : [
+          'Run typecheck to ensure compilation',
+          'Run existing tests to verify no regressions',
+        ],
     risks: [
-      targetFiles.length === 0 ? 'No specific target files identified in request — may need broader exploration' : 'Changes are scoped to identified files',
+      targetFiles.length === 0
+        ? 'No specific target files identified in request — may need broader exploration'
+        : 'Changes are scoped to identified files',
       repoSize > 100 ? 'Large repository — focus only on relevant files' : '',
     ].filter(Boolean),
   };

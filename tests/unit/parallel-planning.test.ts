@@ -1,16 +1,21 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { agentRegistry } from '../../src/agents/agent-registry';
 import { TaskRunner } from '../../src/core/task-runner';
 import { Sandbox } from '../../src/tools/sandbox';
 import { testRunnerTool } from '../../src/tools/test-runner';
-import { agentRegistry } from '../../src/agents/agent-registry';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
 
 // Mock bun:sqlite
 vi.mock('bun:sqlite', () => ({
   Database: class MockDatabase {
-    constructor() {}
     exec() {}
     run() {}
     query() {
@@ -26,7 +31,7 @@ vi.mock('../../src/storage/task-log-store', () => {
     TaskLogStore: class MockTaskLogStore {
       createLog() {}
       updateLog() {}
-    }
+    },
   };
 });
 
@@ -44,7 +49,13 @@ describe('Parallel Path Planning Trials', () => {
       projectRoot: TEST_ROOT,
       rdtConfig: {
         version: 1,
-        project: { name: 'test', language: 'typescript', package_manager: 'bun', test_command: 'bun test', lint_command: '' },
+        project: {
+          name: 'test',
+          language: 'typescript',
+          package_manager: 'bun',
+          test_command: 'bun test',
+          lint_command: '',
+        },
         runtime: {
           max_agent_steps: 10,
           max_edit_passes: 1,
@@ -55,9 +66,17 @@ describe('Parallel Path Planning Trials', () => {
           preserve_user_changes: true,
         },
         context_budget: {
-          default_max_input_tokens: 1000, reserved_output_tokens: 100, repo_map_max_tokens: 100, file_picker_max_tokens: 100,
-          planner_max_tokens: 100, editor_max_tokens: 100, reviewer_max_tokens: 100, max_file_read_tokens: 100, max_total_file_tokens_per_step: 100,
-          truncation_strategy: 'summarize', never_truncate: [],
+          default_max_input_tokens: 1000,
+          reserved_output_tokens: 100,
+          repo_map_max_tokens: 100,
+          file_picker_max_tokens: 100,
+          planner_max_tokens: 100,
+          editor_max_tokens: 100,
+          reviewer_max_tokens: 100,
+          max_file_read_tokens: 100,
+          max_total_file_tokens_per_step: 100,
+          truncation_strategy: 'summarize',
+          never_truncate: [],
         },
         providers: [],
         model_policies: {},
@@ -77,13 +96,19 @@ describe('Parallel Path Planning Trials', () => {
   it('should select Trial 2 when Trial 2 tests pass and Trial 1 fails', async () => {
     // 1. Mock Editor Agent execute to simulate different results for Trial 1 vs Trial 2
     const editorMock = {
-      execute: vi.fn()
+      execute: vi
+        .fn()
         .mockImplementationOnce(async () => {
           mkdirSync('src', { recursive: true });
           writeFileSync(join('src', 'file.ts'), 'content1');
           return {
             success: true,
-            result: { changedFiles: ['src/file.ts'], diff: 'diff1', needsReview: true, summary: 'edit1' }
+            result: {
+              changedFiles: ['src/file.ts'],
+              diff: 'diff1',
+              needsReview: true,
+              summary: 'edit1',
+            },
           };
         }) // Trial 1
         .mockImplementationOnce(async () => {
@@ -91,9 +116,14 @@ describe('Parallel Path Planning Trials', () => {
           writeFileSync(join('src', 'file.ts'), 'content2');
           return {
             success: true,
-            result: { changedFiles: ['src/file.ts'], diff: 'diff2', needsReview: true, summary: 'edit2' }
+            result: {
+              changedFiles: ['src/file.ts'],
+              diff: 'diff2',
+              needsReview: true,
+              summary: 'edit2',
+            },
           };
-        }) // Trial 2
+        }), // Trial 2
     };
 
     vi.spyOn(agentRegistry, 'get').mockImplementation((name) => {
@@ -105,11 +135,23 @@ describe('Parallel Path Planning Trials', () => {
     vi.spyOn(testRunnerTool, 'execute')
       .mockResolvedValueOnce({
         success: true,
-        data: { command: 'test', stdout: '', stderr: '', exitCode: 1, passed: false }
+        data: {
+          command: 'test',
+          stdout: '',
+          stderr: '',
+          exitCode: 1,
+          passed: false,
+        },
       }) // Trial 1 Test fails
       .mockResolvedValueOnce({
         success: true,
-        data: { command: 'test', stdout: '', stderr: '', exitCode: 0, passed: true }
+        data: {
+          command: 'test',
+          stdout: '',
+          stderr: '',
+          exitCode: 0,
+          passed: true,
+        },
       }); // Trial 2 Test passes
 
     // 3. Setup mock state
@@ -122,7 +164,7 @@ describe('Parallel Path Planning Trials', () => {
       maxEditPasses: 1,
       editPass: 0,
       baselines: { rdtTouchedFiles: [] },
-      plan: { steps: [] }
+      plan: { steps: [] },
     };
 
     // Mock Sandbox to capture creations
@@ -130,9 +172,12 @@ describe('Parallel Path Planning Trials', () => {
     const sandbox2Path = resolve(tmpdir(), 'rdt-sandbox-task-parallel-trial-2');
     const mainSandboxPath = resolve(tmpdir(), 'rdt-sandbox-task-parallel-main');
 
-    if (existsSync(sandbox1Path)) rmSync(sandbox1Path, { recursive: true, force: true });
-    if (existsSync(sandbox2Path)) rmSync(sandbox2Path, { recursive: true, force: true });
-    if (existsSync(mainSandboxPath)) rmSync(mainSandboxPath, { recursive: true, force: true });
+    if (existsSync(sandbox1Path))
+      rmSync(sandbox1Path, { recursive: true, force: true });
+    if (existsSync(sandbox2Path))
+      rmSync(sandbox2Path, { recursive: true, force: true });
+    if (existsSync(mainSandboxPath))
+      rmSync(mainSandboxPath, { recursive: true, force: true });
 
     mkdirSync(sandbox1Path, { recursive: true });
     mkdirSync(sandbox2Path, { recursive: true });

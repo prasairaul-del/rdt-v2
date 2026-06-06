@@ -1,27 +1,33 @@
-import { existsSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
-import { createTaskState, transitionState, addTaskError, type TaskState, type TaskStatus } from './task-state';
-import { globalEventBus } from './events';
-import { TaskLogger } from './logger';
 import type { AgentName } from '../agents/agent-registry';
 import { agentRegistry } from '../agents/agent-registry';
-import type { PlannerAgentConfig } from '../agents/planner-agent';
 import type { EditorAgentConfig } from '../agents/editor-agent';
+import type { PlannerAgentConfig } from '../agents/planner-agent';
 import type { ReviewerAgentConfig } from '../agents/reviewer-agent';
-import { ProviderRouter } from '../router/provider-router';
-import type { RdtConfig } from '../config/schema';
 import { loadConfig, resolveConfigPath } from '../config/load-config';
-import { loadInstructions } from '../project-context/load-instructions';
-import { detectProject } from '../project-context/detect-project';
-import { scanRepo } from '../project-context/repo-scanner';
+import type { RdtConfig } from '../config/schema';
 import { buildContext } from '../project-context/context-builder';
+import { detectProject } from '../project-context/detect-project';
+import { loadInstructions } from '../project-context/load-instructions';
+import { scanRepo } from '../project-context/repo-scanner';
+import { ProviderRouter } from '../router/provider-router';
 import { ProviderStateStore } from '../storage/provider-state-store';
 import { TaskLogStore } from '../storage/task-log-store';
 import { gitDiffTool } from '../tools/git-diff';
 import { Sandbox } from '../tools/sandbox';
 import { testRunnerTool } from '../tools/test-runner';
+import { globalEventBus } from './events';
+import { TaskLogger } from './logger';
+import {
+  type TaskState,
+  type TaskStatus,
+  addTaskError,
+  createTaskState,
+  transitionState,
+} from './task-state';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -32,6 +38,7 @@ export interface TaskRunnerConfig {
   stateStore?: ProviderStateStore;
   logStore?: TaskLogStore;
   logger?: TaskLogger;
+  checkCancellation?: () => boolean;
 }
 
 export interface TaskResult {
@@ -56,7 +63,9 @@ export class TaskRunner {
   constructor(config: TaskRunnerConfig) {
     this.config = config;
     this.stateStore = config.stateStore ?? new ProviderStateStore();
-    this.logStore = config.logStore ?? new TaskLogStore(resolve(config.projectRoot, '.rdt', 'tasks.db'));
+    this.logStore =
+      config.logStore ??
+      new TaskLogStore(resolve(config.projectRoot, '.rdt', 'tasks.db'));
     this.logger = config.logger ?? new TaskLogger();
     // Initialize provider router from config if not provided externally
     if (!config.providerRouter && config.rdtConfig) {
@@ -71,11 +80,12 @@ export class TaskRunner {
   /**
    * Run a coding task through the full state machine.
    */
-  async run(request: string): Promise<TaskResult> {
+  async run(request: string, taskId?: string): Promise<TaskResult> {
     const state = createTaskState(
       request,
       this.config.rdtConfig?.runtime.max_edit_passes ?? 3,
       this.config.rdtConfig?.runtime.rollback_on_failed_task ?? true,
+      taskId,
     );
 
     this.logger.setTaskId(state.id);
@@ -101,31 +111,39 @@ export class TaskRunner {
       });
 
       // Setup Git feature branch if configured
-      if (this.config.rdtConfig?.runtime.git_feature_branch && state.baselines?.headHash) {
+      if (
+        this.config.rdtConfig?.runtime.git_feature_branch &&
+        state.baselines?.headHash
+      ) {
         try {
           originalBranch = execSync('git rev-parse --abbrev-ref HEAD', {
             cwd: this.config.projectRoot,
             encoding: 'utf-8',
           }).trim();
 
-          this.logger.info(`Creating Git feature branch 'rdt/task-${state.id}'...`);
+          this.logger.info(
+            `Creating Git feature branch 'rdt/task-${state.id}'...`,
+          );
           execSync(`git checkout -b "rdt/task-${state.id}"`, {
             cwd: this.config.projectRoot,
             encoding: 'utf-8',
           });
           this.logger.info(`Switched to feature branch 'rdt/task-${state.id}'`);
         } catch (err) {
-          this.logger.warn(`Failed to setup Git feature branch: ${err instanceof Error ? err.message : String(err)}`);
+          this.logger.warn(
+            `Failed to setup Git feature branch: ${err instanceof Error ? err.message : String(err)}`,
+          );
           originalBranch = null;
         }
       }
 
-      // Initialize isolated sandbox
+      // Initialize isolated sandbox — we pass its path as cwd to all agents,
+      // so we NEVER call process.chdir() which would be a process-global side effect.
       this.logger.info('Initializing isolated shadow sandbox...');
       await sandbox.init();
       sandboxInitialized = true;
-      process.chdir(sandbox.sandboxPath);
-      this.logger.info(`Sandbox active. Temporary workspace: ${sandbox.sandboxPath}`);
+      const sandboxCwd = sandbox.sandboxPath;
+      this.logger.info(`Sandbox active. Temporary workspace: ${sandboxCwd}`);
 
       // ── STEP 2: LOAD CONTEXT ────────────────────────────────────
       await this.executeStep(state, 'loading_context', async () => {
@@ -160,24 +178,31 @@ export class TaskRunner {
       while (state.editPass < state.maxEditPasses && !approved) {
         state.editPass++;
 
-        // EDIT
+        // EDIT — pass sandboxCwd so agents never rely on process.cwd()
         await this.executeStep(state, 'editing', async () => {
-          this.logger.info(`Edit pass ${state.editPass}/${state.maxEditPasses}...`);
-          await this.editFiles(state);
+          this.logger.info(
+            `Edit pass ${state.editPass}/${state.maxEditPasses}...`,
+          );
+          await this.editFiles(state, sandboxCwd);
         });
 
-        // REVIEW
+        // REVIEW — pass sandboxCwd
         await this.executeStep(state, 'reviewing', async () => {
-          this.logger.info(`Reviewing pass ${state.editPass}/${state.maxEditPasses}...`);
-          approved = await this.reviewChanges(state);
+          this.logger.info(
+            `Reviewing pass ${state.editPass}/${state.maxEditPasses}...`,
+          );
+          approved = await this.reviewChanges(state, sandboxCwd);
         });
 
         // Check if we need another pass
         if (!approved && state.editPass < state.maxEditPasses) {
           transitionState(state, 'fixing');
-          this.logger.info(`Edit pass ${state.editPass} not approved — moving to fixing`, {
-            issues: state.errors.length,
-          });
+          this.logger.info(
+            `Edit pass ${state.editPass} not approved — moving to fixing`,
+            {
+              issues: state.errors.length,
+            },
+          );
         } else if (approved) {
           this.logger.info('Review approved');
         } else {
@@ -188,35 +213,54 @@ export class TaskRunner {
       // ── STEP 9: FINALIZE ────────────────────────────────────────
       await this.executeStep(state, 'finalizing', async () => {
         this.logger.info('Finalizing task...');
-        await this.finalize(state);
+        await this.finalize(state, sandboxCwd);
       });
 
-      // Restore directory back to host before writing back files
-      process.chdir(originalCwd);
+      // Directory was never changed — no restore needed.
 
       if (sandboxInitialized) {
         this.logger.info('Applying sandboxed edits back to host workspace...');
         const appliedFiles = await sandbox.applyToHost(state.changedFiles);
-        this.logger.info(`Applied ${appliedFiles.length} file(s) back to host workspace.`);
+        this.logger.info(
+          `Applied ${appliedFiles.length} file(s) back to host workspace.`,
+        );
       }
 
-      // Git Auto Commit or Feature Branch Commit
-      const shouldCommit = this.config.rdtConfig?.runtime.git_auto_commit || originalBranch;
-      if (shouldCommit && state.baselines?.headHash && state.changedFiles.length > 0) {
+      // Git Auto Commit or Feature Branch Commit — enriched message (#11)
+      const shouldCommit =
+        this.config.rdtConfig?.runtime.git_auto_commit || originalBranch;
+      if (
+        shouldCommit &&
+        state.baselines?.headHash &&
+        state.changedFiles.length > 0
+      ) {
         try {
           this.logger.info('Performing Git commit...');
           for (const file of state.changedFiles) {
             spawnSync('git', ['add', file], { cwd: this.config.projectRoot });
           }
-          const commitMsg = `rdt: ${state.request}`;
-          const commitRes = spawnSync('git', ['commit', '-m', commitMsg], { cwd: this.config.projectRoot });
+          const fileList =
+            state.changedFiles.slice(0, 5).join(', ') +
+            (state.changedFiles.length > 5
+              ? ` (+${state.changedFiles.length - 5} more)`
+              : '');
+          const planLine = state.planSummary
+            ? `\nPlan: ${state.planSummary}`
+            : '';
+          const commitMsg = `rdt [${state.id}]: ${state.request}${planLine}\nFiles: ${fileList}`;
+          const commitRes = spawnSync('git', ['commit', '-m', commitMsg], {
+            cwd: this.config.projectRoot,
+          });
           if (commitRes.status === 0) {
             this.logger.info('Git commit succeeded');
           } else {
-            this.logger.warn(`Git commit failed with exit code ${commitRes.status}: ${commitRes.stderr?.toString()}`);
+            this.logger.warn(
+              `Git commit failed with exit code ${commitRes.status}: ${commitRes.stderr?.toString()}`,
+            );
           }
         } catch (commitErr) {
-          const errMsg = commitErr instanceof Error ? commitErr.message : String(commitErr);
+          const errMsg =
+            commitErr instanceof Error ? commitErr.message : String(commitErr);
           this.logger.warn(`Git commit failed: ${errMsg}`);
         }
       }
@@ -224,11 +268,20 @@ export class TaskRunner {
       // Restore original branch if we switched to a feature branch
       if (originalBranch) {
         try {
-          this.logger.info(`Checking back out to original branch '${originalBranch}'...`);
-          execSync(`git checkout "${originalBranch}"`, { cwd: this.config.projectRoot, encoding: 'utf-8' });
-          this.logger.info(`Switched back to branch '${originalBranch}'. Changes are preserved on 'rdt/task-${state.id}'.`);
+          this.logger.info(
+            `Checking back out to original branch '${originalBranch}'...`,
+          );
+          execSync(`git checkout "${originalBranch}"`, {
+            cwd: this.config.projectRoot,
+            encoding: 'utf-8',
+          });
+          this.logger.info(
+            `Switched back to branch '${originalBranch}'. Changes are preserved on 'rdt/task-${state.id}'.`,
+          );
         } catch (err) {
-          this.logger.warn(`Failed to checkout back to original branch '${originalBranch}': ${err instanceof Error ? err.message : String(err)}`);
+          this.logger.warn(
+            `Failed to checkout back to original branch '${originalBranch}': ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
 
@@ -238,19 +291,30 @@ export class TaskRunner {
 
       result = this.buildResult(state, true);
     } catch (err) {
-      // Ensure host directory is restored on failure before executing failure handling
-      process.chdir(originalCwd);
+      // Directory is never changed now — no restore needed on failure either.
       result = await this.handleFailure(state, err);
 
       // Restore Git branch and delete unused feature branch on failure
       if (originalBranch) {
         try {
-          this.logger.info(`Restoring original Git branch '${originalBranch}' after task failure...`);
-          execSync(`git checkout -f "${originalBranch}"`, { cwd: this.config.projectRoot, encoding: 'utf-8' });
-          execSync(`git branch -D "rdt/task-${state.id}"`, { cwd: this.config.projectRoot, encoding: 'utf-8' });
-          this.logger.info(`Deleted temporary feature branch 'rdt/task-${state.id}'`);
+          this.logger.info(
+            `Restoring original Git branch '${originalBranch}' after task failure...`,
+          );
+          execSync(`git checkout -f "${originalBranch}"`, {
+            cwd: this.config.projectRoot,
+            encoding: 'utf-8',
+          });
+          execSync(`git branch -D "rdt/task-${state.id}"`, {
+            cwd: this.config.projectRoot,
+            encoding: 'utf-8',
+          });
+          this.logger.info(
+            `Deleted temporary feature branch 'rdt/task-${state.id}'`,
+          );
         } catch (branchErr) {
-          this.logger.warn(`Failed to cleanup feature branch: ${branchErr instanceof Error ? branchErr.message : String(branchErr)}`);
+          this.logger.warn(
+            `Failed to cleanup feature branch: ${branchErr instanceof Error ? branchErr.message : String(branchErr)}`,
+          );
         }
       }
     } finally {
@@ -270,15 +334,25 @@ export class TaskRunner {
     targetState: TaskStatus,
     fn: () => Promise<void>,
   ): Promise<void> {
+    if (this.config.checkCancellation?.()) {
+      throw new Error('Task was cancelled by user');
+    }
     const from = state.status;
     transitionState(state, targetState);
     globalEventBus.emitStateChange(state.id, from, targetState);
     try {
       await fn();
-      globalEventBus.emitProgress(state.id, targetState, state.editPass / state.maxEditPasses);
+      globalEventBus.emitProgress(
+        state.id,
+        targetState,
+        state.editPass / state.maxEditPasses,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const code = err instanceof Error && 'code' in err ? (err as Error & { code: string }).code : 'STEP_ERROR';
+      const code =
+        err instanceof Error && 'code' in err
+          ? (err as Error & { code: string }).code
+          : 'STEP_ERROR';
       addTaskError(state, message, code, 'fatal');
       throw err; // Re-throw to be caught by run()
     }
@@ -308,7 +382,8 @@ export class TaskRunner {
           encoding: 'utf-8',
         }).trim();
         if (status) {
-          state.baselines.dirtyFiles = status.split('\n')
+          state.baselines.dirtyFiles = status
+            .split('\n')
             .filter((l) => l.trim())
             .map((l) => l.slice(3).trim());
         }
@@ -333,7 +408,9 @@ export class TaskRunner {
     const projectRoot = this.config.projectRoot;
     const repoMap = scanRepo(projectRoot);
 
-    this.logger.info(`Found ${repoMap.totalFiles} files in ${repoMap.totalDirs} directories`);
+    this.logger.info(
+      `Found ${repoMap.totalFiles} files in ${repoMap.totalDirs} directories`,
+    );
 
     try {
       const { VectorSearch } = await import('../project-context/vector-search');
@@ -341,11 +418,16 @@ export class TaskRunner {
       await vectorSearch.init();
       this.logger.info('Indexing repository for vector search...');
       const indexedCount = await vectorSearch.indexRepository(repoMap);
-      this.logger.info(`Vector search indexing complete. Indexed/updated ${indexedCount} files.`);
+      this.logger.info(
+        `Vector search indexing complete. Indexed/updated ${indexedCount} files.`,
+      );
     } catch (err) {
-      this.logger.warn('Failed to build vector search index, falling back to heuristics only', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      this.logger.warn(
+        'Failed to build vector search index, falling back to heuristics only',
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
     }
   }
 
@@ -354,34 +436,61 @@ export class TaskRunner {
     const projectInfo = detectProject(projectRoot);
     const instructions = loadInstructions(projectRoot);
     const repoMap = scanRepo(projectRoot);
-    const context = buildContext(projectInfo, instructions, repoMap, state.request);
+    const context = buildContext(
+      projectInfo,
+      instructions,
+      repoMap,
+      state.request,
+    );
 
     // Use the file picker agent
     const filePicker = agentRegistry.get('file_picker');
     if (!filePicker) {
-      addTaskError(state, 'File picker agent not found', 'AGENT_NOT_FOUND', 'fatal');
+      addTaskError(
+        state,
+        'File picker agent not found',
+        'AGENT_NOT_FOUND',
+        'fatal',
+      );
       return;
     }
 
     const filePickerConfig = {
       router: this.router,
-      policyName: this.config.rdtConfig?.agents?.file_picker?.model_policy ?? 'cheap_fast',
+      policyName:
+        this.config.rdtConfig?.agents?.file_picker?.model_policy ??
+        'cheap_fast',
     };
-    const result = await filePicker.execute({
-      task: state,
-      project: context,
-    }, filePickerConfig);
+    const result = await filePicker.execute(
+      {
+        task: state,
+        project: context,
+      },
+      filePickerConfig,
+    );
 
     if (result.success && result.result) {
-      const selection = result.result as { files: Array<{ path: string; reason: string; priority: 'high' | 'medium' | 'low' }> };
+      const selection = result.result as {
+        files: Array<{
+          path: string;
+          reason: string;
+          priority: 'high' | 'medium' | 'low';
+        }>;
+      };
       state.selectedFilesCount = selection.files.length;
       state.selectedFiles = selection.files;
       this.logger.info(`Selected ${selection.files.length} files`, {
-        high: selection.files.filter((f: { priority: string }) => f.priority === 'high').length,
-        medium: selection.files.filter((f: { priority: string }) => f.priority === 'medium').length,
+        high: selection.files.filter(
+          (f: { priority: string }) => f.priority === 'high',
+        ).length,
+        medium: selection.files.filter(
+          (f: { priority: string }) => f.priority === 'medium',
+        ).length,
       });
     } else {
-      this.logger.warn('File picker returned no results', { error: result.error?.message });
+      this.logger.warn('File picker returned no results', {
+        error: result.error?.message,
+      });
       state.selectedFilesCount = 0;
     }
   }
@@ -391,31 +500,51 @@ export class TaskRunner {
     const projectInfo = detectProject(projectRoot);
     const instructions = loadInstructions(projectRoot);
     const repoMap = scanRepo(projectRoot);
-    const context = buildContext(projectInfo, instructions, repoMap, state.request);
+    const context = buildContext(
+      projectInfo,
+      instructions,
+      repoMap,
+      state.request,
+    );
 
     const planner = agentRegistry.get('planner');
     if (!planner) {
-      addTaskError(state, 'Planner agent not found', 'AGENT_NOT_FOUND', 'fatal');
+      addTaskError(
+        state,
+        'Planner agent not found',
+        'AGENT_NOT_FOUND',
+        'fatal',
+      );
       return;
     }
 
     const router = this.router;
     const plannerConfig: PlannerAgentConfig = {
-      router: router ?? {} as ProviderRouter,
-      policyName: this.config.rdtConfig?.agents?.planner?.model_policy ?? 'smart_reasoning',
+      router: router ?? ({} as ProviderRouter),
+      policyName:
+        this.config.rdtConfig?.agents?.planner?.model_policy ??
+        'smart_reasoning',
       tools: [],
     };
 
-    const result = await planner.execute({
-      task: state,
-      project: context,
-      files: state.selectedFiles,
-    }, plannerConfig);
+    const result = await planner.execute(
+      {
+        task: state,
+        project: context,
+        files: state.selectedFiles,
+      },
+      plannerConfig,
+    );
 
     if (result.success && result.result) {
       const plan = result.result as {
         summary: string;
-        steps: Array<{ id: string; description: string; targetFiles: string[]; risk: 'low' | 'medium' | 'high' }>;
+        steps: Array<{
+          id: string;
+          description: string;
+          targetFiles: string[];
+          risk: 'low' | 'medium' | 'high';
+        }>;
         testPlan: string[];
         risks: string[];
       };
@@ -425,16 +554,29 @@ export class TaskRunner {
         steps: plan.steps.length,
       });
     } else {
-      addTaskError(state, 'Planner agent failed', 'PLANNER_FAILED', 'recoverable');
+      addTaskError(
+        state,
+        'Planner agent failed',
+        'PLANNER_FAILED',
+        'recoverable',
+      );
     }
   }
 
-  private async editFiles(state: TaskState): Promise<void> {
+  private async editFiles(
+    state: TaskState,
+    sandboxCwd = process.cwd(),
+  ): Promise<void> {
     const projectRoot = this.config.projectRoot;
     const projectInfo = detectProject(projectRoot);
     const instructions = loadInstructions(projectRoot);
     const repoMap = scanRepo(projectRoot);
-    const context = buildContext(projectInfo, instructions, repoMap, state.request);
+    const context = buildContext(
+      projectInfo,
+      instructions,
+      repoMap,
+      state.request,
+    );
 
     const editor = agentRegistry.get('editor');
     if (!editor) {
@@ -443,12 +585,15 @@ export class TaskRunner {
     }
 
     const editorConfig: EditorAgentConfig = {
-      router: this.router ?? {} as ProviderRouter,
-      policyName: this.config.rdtConfig?.agents?.editor?.model_policy ?? 'code_strong',
+      router: this.router ?? ({} as ProviderRouter),
+      policyName:
+        this.config.rdtConfig?.agents?.editor?.model_policy ?? 'code_strong',
       tools: [],
+      cwd: sandboxCwd,
     };
 
-    const mainSandboxPath = process.cwd();
+    // sandboxCwd is passed in as a parameter — no global state needed
+
     this.logger.info('Starting parallel edit trials to evaluate best fix...');
 
     // --- TRIAL 1 ---
@@ -458,17 +603,27 @@ export class TaskRunner {
 
     try {
       await sandbox1.init();
-      process.chdir(sandbox1.sandboxPath);
+      // Pass trial sandbox path as cwd — no process.chdir() needed
+      const trial1Config = { ...editorConfig, cwd: sandbox1.sandboxPath };
       this.logger.info(`Running Edit Trial 1 in: ${sandbox1.sandboxPath}`);
-      const res = await editor.execute({ task: state, plan: state.plan, project: context }, editorConfig);
+      const res = await editor.execute(
+        { task: state, plan: state.plan, project: context },
+        trial1Config,
+      );
       if (res.success && res.result) {
         trial1Result = res.result;
-        const testRes = await testRunnerTool.execute({});
+        const testRes = await testRunnerTool.execute({
+          cwd: sandbox1.sandboxPath,
+        });
         trial1Passed = testRes.success && (testRes.data?.passed ?? false);
-        this.logger.info(`Trial 1 test result: ${trial1Passed ? 'PASSED' : 'FAILED'}`);
+        this.logger.info(
+          `Trial 1 test result: ${trial1Passed ? 'PASSED' : 'FAILED'}`,
+        );
       }
     } catch (err) {
-      this.logger.warn('Edit Trial 1 failed:', { error: err instanceof Error ? err.message : String(err) });
+      this.logger.warn('Edit Trial 1 failed:', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     // --- TRIAL 2 ---
@@ -478,21 +633,30 @@ export class TaskRunner {
 
     try {
       await sandbox2.init();
-      process.chdir(sandbox2.sandboxPath);
+      // Pass trial sandbox path as cwd — no process.chdir() needed
+      const trial2Config = { ...editorConfig, cwd: sandbox2.sandboxPath };
       this.logger.info(`Running Edit Trial 2 in: ${sandbox2.sandboxPath}`);
-      const res = await editor.execute({ task: state, plan: state.plan, project: context }, editorConfig);
+      const res = await editor.execute(
+        { task: state, plan: state.plan, project: context },
+        trial2Config,
+      );
       if (res.success && res.result) {
         trial2Result = res.result;
-        const testRes = await testRunnerTool.execute({});
+        const testRes = await testRunnerTool.execute({
+          cwd: sandbox2.sandboxPath,
+        });
         trial2Passed = testRes.success && (testRes.data?.passed ?? false);
-        this.logger.info(`Trial 2 test result: ${trial2Passed ? 'PASSED' : 'FAILED'}`);
+        this.logger.info(
+          `Trial 2 test result: ${trial2Passed ? 'PASSED' : 'FAILED'}`,
+        );
       }
     } catch (err) {
-      this.logger.warn('Edit Trial 2 failed:', { error: err instanceof Error ? err.message : String(err) });
+      this.logger.warn('Edit Trial 2 failed:', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
-    // Restore directory back to main sandbox
-    process.chdir(mainSandboxPath);
+    // No process.chdir() needed — cwd was passed explicitly to all tools
 
     // Evaluate trials
     let selectedSandbox = sandbox1;
@@ -506,20 +670,30 @@ export class TaskRunner {
       this.logger.info('Selecting Trial 1 as primary candidate');
     }
 
-    if (selectedResult && selectedResult.changedFiles) {
-      const editResult = selectedResult as { changedFiles: string[]; diff: string; needsReview: boolean; summary: string };
-      state.changedFiles = [...new Set([...state.changedFiles, ...editResult.changedFiles])];
+    if (selectedResult?.changedFiles) {
+      const editResult = selectedResult as {
+        changedFiles: string[];
+        diff: string;
+        needsReview: boolean;
+        summary: string;
+      };
+      state.changedFiles = [
+        ...new Set([...state.changedFiles, ...editResult.changedFiles]),
+      ];
 
       if (state.baselines) {
         state.baselines.rdtTouchedFiles = [
-          ...new Set([...state.baselines.rdtTouchedFiles, ...editResult.changedFiles]),
+          ...new Set([
+            ...state.baselines.rdtTouchedFiles,
+            ...editResult.changedFiles,
+          ]),
         ];
       }
 
-      // Copy files to main sandbox
+      // Copy files from winning trial into main sandbox
       for (const file of editResult.changedFiles) {
         const srcFile = join(selectedSandbox.sandboxPath, file);
-        const destFile = join(mainSandboxPath, file);
+        const destFile = join(sandboxCwd, file);
         if (existsSync(srcFile)) {
           mkdirSync(dirname(destFile), { recursive: true });
           copyFileSync(srcFile, destFile);
@@ -531,7 +705,12 @@ export class TaskRunner {
         needsReview: editResult.needsReview,
       });
     } else {
-      addTaskError(state, 'All editor trials failed', 'EDITOR_FAILED', 'recoverable');
+      addTaskError(
+        state,
+        'All editor trials failed',
+        'EDITOR_FAILED',
+        'recoverable',
+      );
     }
 
     // Cleanup trial sandboxes
@@ -539,15 +718,23 @@ export class TaskRunner {
     await sandbox2.destroy();
   }
 
-  private async reviewChanges(state: TaskState): Promise<boolean> {
+  private async reviewChanges(
+    state: TaskState,
+    sandboxCwd = process.cwd(),
+  ): Promise<boolean> {
     const projectRoot = this.config.projectRoot;
     const projectInfo = detectProject(projectRoot);
     const instructions = loadInstructions(projectRoot);
     const repoMap = scanRepo(projectRoot);
-    const context = buildContext(projectInfo, instructions, repoMap, state.request);
+    const context = buildContext(
+      projectInfo,
+      instructions,
+      repoMap,
+      state.request,
+    );
 
-    // Capture diff
-    const diffResult = await gitDiffTool.execute({});
+    // Capture diff from the sandbox directory explicitly
+    const diffResult = await gitDiffTool.execute({ cwd: sandboxCwd });
     if (diffResult.success && diffResult.data) {
       state.diff = diffResult.data.diff;
     }
@@ -559,16 +746,22 @@ export class TaskRunner {
     }
 
     const reviewerConfig: ReviewerAgentConfig = {
-      router: this.router ?? {} as ProviderRouter,
-      policyName: this.config.rdtConfig?.agents?.reviewer?.model_policy ?? 'smart_reasoning',
+      router: this.router ?? ({} as ProviderRouter),
+      policyName:
+        this.config.rdtConfig?.agents?.reviewer?.model_policy ??
+        'smart_reasoning',
+      cwd: sandboxCwd,
     };
 
-    const result = await reviewer.execute({
-      task: state,
-      plan: state.plan as any,
-      project: context,
-      diff: state.diff,
-    }, reviewerConfig);
+    const result = await reviewer.execute(
+      {
+        task: state,
+        plan: state.plan as any,
+        project: context,
+        diff: state.diff,
+      },
+      reviewerConfig,
+    );
 
     if (result.success && result.result) {
       const review = result.result as any;
@@ -585,10 +778,13 @@ export class TaskRunner {
         }
       }
 
-      this.logger.info(`Review: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}`, {
-        issues: review.issues.length,
-        summary: review.finalSummary,
-      });
+      this.logger.info(
+        `Review: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}`,
+        {
+          issues: review.issues.length,
+          summary: review.finalSummary,
+        },
+      );
 
       return review.approved;
     }
@@ -597,27 +793,36 @@ export class TaskRunner {
     return true;
   }
 
-  private async finalize(state: TaskState): Promise<void> {
-    // Get final diff
-    const diffResult = await gitDiffTool.execute({});
+  private async finalize(
+    state: TaskState,
+    sandboxCwd = process.cwd(),
+  ): Promise<void> {
+    // Get final diff from sandbox explicitly
+    const diffResult = await gitDiffTool.execute({ cwd: sandboxCwd });
     if (diffResult.success && diffResult.data) {
       state.diff = diffResult.data.diff;
     }
 
-    // Save task log
+    // Save task log (includes diff — fix #3)
     await this.saveTaskLog(state);
   }
 
   // ── Failure Handling ───────────────────────────────────────────
 
-  private async handleFailure(state: TaskState, err: unknown): Promise<TaskResult> {
+  private async handleFailure(
+    state: TaskState,
+    err: unknown,
+  ): Promise<TaskResult> {
     const message = err instanceof Error ? err.message : String(err);
     this.logger.error(`Task failed: ${message}`);
     globalEventBus.emitError(state.id, message, 'TASK_FAILURE');
 
     // Ensure the error is recorded on the state (which auto-transitions to 'failed' if needed)
-    if (!state.errors.some(e => e.message === message)) {
-      const code = err instanceof Error && 'code' in err ? (err as any).code : 'TASK_FAILURE';
+    if (!state.errors.some((e) => e.message === message)) {
+      const code =
+        err instanceof Error && 'code' in err
+          ? (err as any).code
+          : 'TASK_FAILURE';
       addTaskError(state, message, code, 'fatal');
     }
 
@@ -630,7 +835,10 @@ export class TaskRunner {
         transitionState(state, 'failed_clean');
         this.logger.info('Rollback succeeded — state is FAILED_CLEAN');
       } catch (rollbackErr) {
-        const rollbackMsg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+        const rollbackMsg =
+          rollbackErr instanceof Error
+            ? rollbackErr.message
+            : String(rollbackErr);
         this.logger.error(`Rollback failed: ${rollbackMsg}`);
         transitionState(state, 'failed_dirty');
       }
@@ -661,7 +869,10 @@ export class TaskRunner {
       const filePath = resolve(projectRoot, file);
       if (existsSync(filePath)) {
         try {
-          execSync(`git checkout -- "${file}"`, { cwd: projectRoot, encoding: 'utf-8' });
+          execSync(`git checkout -- "${file}"`, {
+            cwd: projectRoot,
+            encoding: 'utf-8',
+          });
           this.logger.debug(`Rolled back: ${file}`);
         } catch {
           this.logger.warn(`Could not rollback: ${file}`);
@@ -680,7 +891,11 @@ export class TaskRunner {
     const diff = state.diff || '';
     if (diff) {
       const patchPath = resolve(rdtDir, `${state.id}.failed.patch`);
-      writeFileSync(patchPath, `# Failed task patch: ${state.id}\n# Request: ${state.request}\n${diff}`, 'utf-8');
+      writeFileSync(
+        patchPath,
+        `# Failed task patch: ${state.id}\n# Request: ${state.request}\n${diff}`,
+        'utf-8',
+      );
       this.logger.info(`Failed patch saved: ${patchPath}`);
     }
   }
@@ -689,17 +904,30 @@ export class TaskRunner {
 
   private async saveTaskLog(state: TaskState): Promise<void> {
     try {
-      this.logStore.createLog(state.request);
+      if (!this.logStore.getLog(state.id)) {
+        this.logStore.createLog(state.request, state.id);
+      }
       this.logStore.updateLog(state.id, {
         status: state.status === 'done' ? 'success' : 'failed',
         finishedAt: state.finishedAt ?? new Date().toISOString(),
         selectedFiles: state.changedFiles,
         planSummary: state.planSummary,
         changedFiles: state.changedFiles,
-        providersUsed: state.providerUsage.map((p) => `${p.providerId}/${p.modelId}`),
+        diff: state.diff, // Fix #3 — persist diff
+        providersUsed: state.providerUsage.map(
+          (p) => `${p.providerId}/${p.modelId}`,
+        ),
         finalSummary: `Task ${state.status}: ${state.changedFiles.length} file(s) changed`,
         errorMessage: state.errors.map((e) => e.message).join('; '),
       });
+
+      // Write full textual execution logs to log file
+      const logsDir = resolve(this.config.projectRoot, '.rdt', 'logs');
+      if (!existsSync(logsDir)) {
+        mkdirSync(logsDir, { recursive: true });
+      }
+      const logFilePath = resolve(logsDir, `${state.id}.log`);
+      writeFileSync(logFilePath, this.logger.formatAsText(), 'utf-8');
     } catch (err) {
       this.logger.warn('Failed to save task log', {
         error: err instanceof Error ? err.message : String(err),
@@ -709,16 +937,24 @@ export class TaskRunner {
 
   // ── Result Builder ─────────────────────────────────────────────
 
-  private buildResult(state: TaskState, success: boolean, errorMessage?: string): TaskResult {
+  private buildResult(
+    state: TaskState,
+    success: boolean,
+    errorMessage?: string,
+  ): TaskResult {
     const isFailedClean = state.status === 'failed_clean';
     const isFailedDirty = state.status === 'failed_dirty';
 
     // Build provider summary
-    const providerSummary = state.providerUsage.length > 0
-      ? state.providerUsage
-        .map((p) => `${p.agentName}: ${p.providerId}/${p.modelId}${p.error ? ` — ${p.error}` : ''}`)
-        .join('\n')
-      : 'No provider calls recorded';
+    const providerSummary =
+      state.providerUsage.length > 0
+        ? state.providerUsage
+            .map(
+              (p) =>
+                `${p.agentName}: ${p.providerId}/${p.modelId}${p.error ? ` — ${p.error}` : ''}`,
+            )
+            .join('\n')
+        : 'No provider calls recorded';
 
     // Build summary text
     const summaryParts: string[] = [];
@@ -727,7 +963,9 @@ export class TaskRunner {
     } else if (isFailedClean) {
       summaryParts.push('Task failed — changes rolled back (FAILED_CLEAN)');
     } else if (isFailedDirty) {
-      summaryParts.push('Task failed — repository may have uncommitted changes (FAILED_DIRTY)');
+      summaryParts.push(
+        'Task failed — repository may have uncommitted changes (FAILED_DIRTY)',
+      );
     } else {
       summaryParts.push('Task failed');
     }
@@ -742,11 +980,16 @@ export class TaskRunner {
 
     // Log provider usage
     for (const usage of state.providerUsage) {
-      this.logger.info(`Provider: ${usage.agentName} -> ${usage.providerId}/${usage.modelId}`, {
-        duration: `${usage.durationMs}ms`,
-        tokens: usage.promptTokens ? `${usage.promptTokens} in / ${usage.completionTokens} out` : undefined,
-        error: usage.error,
-      });
+      this.logger.info(
+        `Provider: ${usage.agentName} -> ${usage.providerId}/${usage.modelId}`,
+        {
+          duration: `${usage.durationMs}ms`,
+          tokens: usage.promptTokens
+            ? `${usage.promptTokens} in / ${usage.completionTokens} out`
+            : undefined,
+          error: usage.error,
+        },
+      );
     }
 
     return {

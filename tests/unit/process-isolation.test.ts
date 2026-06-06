@@ -1,11 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { wrapCommand } from '../../src/tools/process-isolation';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { wrapCommand } from '../../src/tools/process-isolation';
 
 // Mock bun:sqlite since vitest runs in Node.js
 vi.mock('bun:sqlite', () => ({
   Database: class MockDatabase {
-    constructor() {}
     exec() {}
     run() {}
     query() {
@@ -36,10 +35,10 @@ describe('Process Isolation Sandboxing', () => {
 
     expect(wrapped).toContain('powershell');
     expect(wrapped).toContain('-EncodedCommand');
-    
+
     const match = wrapped.match(/-EncodedCommand\s+(.+)/);
     expect(match).not.toBeNull();
-    const base64 = match![1];
+    const base64 = match?.[1] ?? '';
     const decoded = Buffer.from(base64, 'base64').toString('utf16le');
     expect(decoded).toContain('Get-Location');
     expect(decoded).toContain('c:\\temp\\sandbox');
@@ -62,13 +61,15 @@ describe('Process Isolation Sandboxing', () => {
     // Extract profile path
     const match = wrapped.match(/sandbox-exec -f "([^"]+)"/);
     expect(match).not.toBeNull();
-    const profilePath = match![1];
+    const profilePath = match?.[1] ?? '';
 
     // Verify profile file was created and contains correct rules
     expect(existsSync(profilePath)).toBe(true);
     const content = readFileSync(profilePath, 'utf-8');
     expect(content).toContain('(version 1)');
-    expect(content).toContain(`(allow file-read* file-write* (subpath "${sandboxPath}"))`);
+    expect(content).toContain(
+      `(allow file-read* file-write* (subpath "${sandboxPath}"))`,
+    );
     expect(content).toContain('(deny network-outbound)');
 
     // Cleanup

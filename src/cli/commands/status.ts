@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command } from 'commander';
-import { detectProject } from '../../project-context/detect-project';
 import { loadConfig } from '../../config/load-config';
+import { detectProject } from '../../project-context/detect-project';
 
 export function createStatusCommand(): Command {
   return new Command('status')
@@ -45,7 +45,9 @@ export function createStatusCommand(): Command {
           console.log(`  ${p.id}:`);
           console.log(`    Type:          ${p.type}`);
           console.log(`    Enabled:       ${p.enabled ? 'yes' : 'no'}`);
-          console.log(`    API key:       ${apiKey ? `${apiKey.slice(0, 8)}...` : 'not set'}`);
+          console.log(
+            `    API key:       ${apiKey ? `${apiKey.slice(0, 8)}...` : 'not set'}`,
+          );
         }
 
         // Agent policies

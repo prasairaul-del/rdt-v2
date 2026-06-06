@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { agentRegistry } from '../../src/agents/agent-registry';
+import { editorAgent } from '../../src/agents/editor-agent';
 import { filePickerAgent } from '../../src/agents/file-picker-agent';
 import { plannerAgent } from '../../src/agents/planner-agent';
-import { editorAgent } from '../../src/agents/editor-agent';
 import { reviewerAgent } from '../../src/agents/reviewer-agent';
 import { createTaskState } from '../../src/core/task-state';
 import { buildContext } from '../../src/project-context/context-builder';
@@ -64,8 +64,18 @@ function createInputWithPlan(request: string) {
     plan: {
       summary: `Test plan for: ${request}`,
       steps: [
-        { id: 'step_1', description: 'Read code', targetFiles: ['src/example.ts'], risk: 'low' as const },
-        { id: 'step_2', description: 'Apply changes', targetFiles: ['src/example.ts'], risk: 'medium' as const },
+        {
+          id: 'step_1',
+          description: 'Read code',
+          targetFiles: ['src/example.ts'],
+          risk: 'low' as const,
+        },
+        {
+          id: 'step_2',
+          description: 'Apply changes',
+          targetFiles: ['src/example.ts'],
+          risk: 'medium' as const,
+        },
       ],
       testPlan: ['Run tests'],
       risks: ['Small risk'],
@@ -87,8 +97,8 @@ describe('AgentRegistry', () => {
   it('should return a registered agent by name', () => {
     const agent = agentRegistry.get('file_picker');
     expect(agent).toBeDefined();
-    expect(agent!.name).toBe('file_picker');
-    expect(agent!.description).toBeTruthy();
+    expect(agent?.name).toBe('file_picker');
+    expect(agent?.description).toBeTruthy();
   });
 
   it('should return undefined for unknown agent', () => {
@@ -104,14 +114,14 @@ describe('AgentRegistry', () => {
 
   it('file_picker agent should have execute function', () => {
     const agent = agentRegistry.get('file_picker');
-    expect(typeof agent!.execute).toBe('function');
+    expect(typeof agent?.execute).toBe('function');
   });
 
   it('planner agent should have execute function with config param', () => {
     const agent = agentRegistry.get('planner');
-    expect(typeof agent!.execute).toBe('function');
+    expect(typeof agent?.execute).toBe('function');
     // execute signature accepts 2 args
-    expect(agent!.execute.length).toBeGreaterThanOrEqual(1);
+    expect(agent?.execute.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -124,9 +134,9 @@ describe('filePickerAgent', () => {
 
     expect(result.success).toBe(true);
     expect(result.result).toBeDefined();
-    expect(result.result!.files).toBeDefined();
-    expect(result.result!.searchQueries).toBeDefined();
-    expect(typeof result.result!.confidence).toBe('number');
+    expect(result.result?.files).toBeDefined();
+    expect(result.result?.searchQueries).toBeDefined();
+    expect(typeof result.result?.confidence).toBe('number');
   }, 15_000);
 
   it('should select high-priority files for relevant requests', async () => {
@@ -134,7 +144,7 @@ describe('filePickerAgent', () => {
     const result = await filePickerAgent(input);
 
     expect(result.success).toBe(true);
-    const files = result.result!.files;
+    const files = result.result?.files ?? [];
     // Should include at least some files
     expect(files.length).toBeGreaterThan(0);
   }, 15_000);
@@ -143,7 +153,7 @@ describe('filePickerAgent', () => {
     const input = createMinimalInput('fix the route handler in index.ts');
     const result = await filePickerAgent(input);
 
-    expect(result.result!.searchQueries.length).toBeGreaterThan(0);
+    expect(result.result?.searchQueries.length).toBeGreaterThan(0);
   }, 15_000);
 
   it('should handle edge case with empty request gracefully', async () => {
@@ -188,9 +198,9 @@ describe('plannerAgent', () => {
 
     expect(result.success).toBe(true);
     expect(result.result).toBeDefined();
-    expect(result.result!.summary).toBeTruthy();
-    expect(result.result!.steps.length).toBeGreaterThan(0);
-    expect(result.result!.testPlan.length).toBeGreaterThan(0);
+    expect(result.result?.summary).toBeTruthy();
+    expect(result.result?.steps.length).toBeGreaterThan(0);
+    expect(result.result?.testPlan.length).toBeGreaterThan(0);
   });
 
   it('should create a plan for add/create requests', async () => {
@@ -198,29 +208,40 @@ describe('plannerAgent', () => {
     const result = await plannerAgent(input, minimalConfig);
 
     expect(result.success).toBe(true);
-    expect(result.result!.steps.some((s) => s.description.includes('Create') || s.description.includes('create'))).toBe(true);
+    expect(
+      result.result?.steps.some(
+        (s) =>
+          s.description.includes('Create') || s.description.includes('create'),
+      ),
+    ).toBe(true);
   });
 
   it('should create a plan for delete/remove requests', async () => {
-    const input = createMinimalInput('remove the deprecated helpers in utils.ts');
+    const input = createMinimalInput(
+      'remove the deprecated helpers in utils.ts',
+    );
     const result = await plannerAgent(input, minimalConfig);
 
     expect(result.success).toBe(true);
-    expect(result.result!.steps.some((s) => s.description.includes('Remove'))).toBe(true);
+    expect(
+      result.result?.steps.some((s) => s.description.includes('Remove')),
+    ).toBe(true);
   });
 
   it('should detect test involvement', async () => {
     const input = createMinimalInput('add unit tests for the service layer');
     const result = await plannerAgent(input, minimalConfig);
 
-    expect(result.result!.testPlan.some((t) => t.toLowerCase().includes('test'))).toBe(true);
+    expect(
+      result.result?.testPlan.some((t) => t.toLowerCase().includes('test')),
+    ).toBe(true);
   });
 
   it('should return steps with unique IDs', async () => {
     const input = createMinimalInput('refactor the database layer');
     const result = await plannerAgent(input, minimalConfig);
 
-    const ids = result.result!.steps.map((s) => s.id);
+    const ids = result.result?.steps.map((s) => s.id) ?? [];
     expect(new Set(ids).size).toBe(ids.length);
   });
 
@@ -228,7 +249,8 @@ describe('plannerAgent', () => {
     const input = createMinimalInput('update dependencies');
     const result = await plannerAgent(input, minimalConfig);
 
-    for (const step of result.result!.steps) {
+    const steps = result.result?.steps ?? [];
+    for (const step of steps) {
       expect(['low', 'medium', 'high']).toContain(step.risk);
     }
   });
@@ -250,7 +272,7 @@ describe('editorAgent', () => {
     const result = await editorAgent(input);
 
     expect(result.success).toBe(false);
-    expect(result.error!.code).toBe('MISSING_PLAN');
+    expect(result.error?.code).toBe('MISSING_PLAN');
   });
 
   it('should report target files from plan', async () => {
@@ -258,22 +280,22 @@ describe('editorAgent', () => {
     const result = await editorAgent(input);
 
     expect(result.success).toBe(true);
-    expect(result.result!.changedFiles).toContain('src/example.ts');
+    expect(result.result?.changedFiles).toContain('src/example.ts');
   });
 
   it('should indicate when review is needed', async () => {
     const input = createInputWithPlan('edit some files');
     const result = await editorAgent(input);
 
-    expect(result.result!.needsReview).toBe(true);
+    expect(result.result?.needsReview).toBe(true);
   });
 
   it('should provide summary of planned changes', async () => {
     const input = createInputWithPlan('update multiple files');
     const result = await editorAgent(input);
 
-    expect(result.result!.summary).toBeTruthy();
-    expect(result.result!.summary).toContain('file');
+    expect(result.result?.summary).toBeTruthy();
+    expect(result.result?.summary).toContain('file');
   });
 
   it('should record tool calls for reads', async () => {
@@ -288,7 +310,12 @@ describe('editorAgent', () => {
     const projectInfo = detectProject(process.cwd());
     const instructions = loadInstructions(process.cwd());
     const repoMap = scanRepo(process.cwd());
-    const context = buildContext(projectInfo, instructions, repoMap, 'complex edit');
+    const context = buildContext(
+      projectInfo,
+      instructions,
+      repoMap,
+      'complex edit',
+    );
 
     const input = {
       task: state,
@@ -296,8 +323,18 @@ describe('editorAgent', () => {
       plan: {
         summary: 'Complex multi-file edit',
         steps: [
-          { id: 'step_1', description: 'Edit file A', targetFiles: ['src/a.ts', 'src/b.ts'], risk: 'low' as const },
-          { id: 'step_2', description: 'Edit file B', targetFiles: ['src/c.ts'], risk: 'medium' as const },
+          {
+            id: 'step_1',
+            description: 'Edit file A',
+            targetFiles: ['src/a.ts', 'src/b.ts'],
+            risk: 'low' as const,
+          },
+          {
+            id: 'step_2',
+            description: 'Edit file B',
+            targetFiles: ['src/c.ts'],
+            risk: 'medium' as const,
+          },
         ],
         testPlan: ['Run tests'],
         risks: [],
@@ -306,7 +343,7 @@ describe('editorAgent', () => {
 
     const result = await editorAgent(input);
     expect(result.success).toBe(true);
-    expect(result.result!.changedFiles.length).toBe(3);
+    expect(result.result?.changedFiles.length).toBe(3);
   });
 });
 
@@ -319,29 +356,29 @@ describe('reviewerAgent', () => {
 
     expect(result.success).toBe(true);
     expect(result.result).toBeDefined();
-    expect(result.result!.approved).toBeDefined();
-    expect(typeof result.result!.approved).toBe('boolean');
+    expect(result.result?.approved).toBeDefined();
+    expect(typeof result.result?.approved).toBe('boolean');
   });
 
   it('should report issues found', async () => {
     const input = createInputWithPlan('check everything');
     const result = await reviewerAgent(input);
 
-    expect(Array.isArray(result.result!.issues)).toBe(true);
+    expect(Array.isArray(result.result?.issues)).toBe(true);
   });
 
   it('should include required fixes if issues found', async () => {
     const input = createInputWithPlan('validate the project');
     const result = await reviewerAgent(input);
 
-    expect(Array.isArray(result.result!.requiredFixes)).toBe(true);
+    expect(Array.isArray(result.result?.requiredFixes)).toBe(true);
   });
 
   it('should provide a final summary', async () => {
     const input = createInputWithPlan('summarize changes');
     const result = await reviewerAgent(input);
 
-    expect(result.result!.finalSummary).toBeTruthy();
+    expect(result.result?.finalSummary).toBeTruthy();
   });
 
   it('should record tool calls', async () => {

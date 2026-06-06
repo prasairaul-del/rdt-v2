@@ -1,14 +1,16 @@
 #!/usr/bin/env bun
 
-import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { createInitCommand } from './commands/init';
-import { createStatusCommand } from './commands/status';
-import { createRunCommand } from './commands/run';
-import { createProvidersCommand } from './commands/providers';
+import { fileURLToPath } from 'node:url';
+import { Command } from 'commander';
 import { createDashboardCommand } from './commands/dashboard';
+import { createExplainCommand } from './commands/explain';
+import { createInitCommand } from './commands/init';
+import { createProvidersCommand } from './commands/providers';
+import { createRunCommand } from './commands/run';
+import { createStatusCommand } from './commands/status';
+import { createUndoCommand } from './commands/undo';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -37,6 +39,8 @@ export function createProgram(): Command {
   program.addCommand(createRunCommand());
   program.addCommand(createProvidersCommand());
   program.addCommand(createDashboardCommand());
+  program.addCommand(createExplainCommand());
+  program.addCommand(createUndoCommand());
 
   return program;
 }

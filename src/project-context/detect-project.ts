@@ -20,10 +20,12 @@ export function detectProject(projectRoot: string): ProjectInfo {
   const hasGit = existsSync(resolve(projectRoot, '.git'));
   const sourceDirs = detectSourceDirs(projectRoot);
 
-  const name = typeof pkg?.name === 'string'
-    ? pkg.name
-    : (readProjectNameFromPyproject(projectRoot)
-      ?? projectRoot.split(/[/\\]/).pop()) || 'unknown';
+  const name =
+    typeof pkg?.name === 'string'
+      ? pkg.name
+      : (readProjectNameFromPyproject(projectRoot) ??
+          projectRoot.split(/[/\\]/).pop()) ||
+        'unknown';
   const language = detectLanguage(projectRoot, pkg);
 
   return {
@@ -48,7 +50,10 @@ function readPackageJson(projectRoot: string): Record<string, unknown> | null {
   }
 }
 
-function detectLanguage(projectRoot: string, pkg: Record<string, unknown> | null): string {
+function detectLanguage(
+  projectRoot: string,
+  pkg: Record<string, unknown> | null,
+): string {
   if (existsSync(resolve(projectRoot, 'tsconfig.json'))) return 'typescript';
   if (existsSync(resolve(projectRoot, 'pyproject.toml'))) return 'python';
   if (existsSync(resolve(projectRoot, 'Cargo.toml'))) return 'rust';
@@ -59,7 +64,9 @@ function detectLanguage(projectRoot: string, pkg: Record<string, unknown> | null
 
 function detectSourceDirs(projectRoot: string): string[] {
   const commonDirs = ['src', 'lib', 'app', 'source'];
-  const existing = commonDirs.filter((dir) => existsSync(resolve(projectRoot, dir)));
+  const existing = commonDirs.filter((dir) =>
+    existsSync(resolve(projectRoot, dir)),
+  );
   if (existing.length > 0) return existing;
   return ['src'];
 }

@@ -1,18 +1,93 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
 import type { ProviderRouter } from '../router/provider-router';
 import type { RepoMap } from './repo-map';
 
 const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'and', 'or', 'but', 'if', 'else', 'then', 'while', 'for', 'each',
-  'in', 'on', 'at', 'by', 'of', 'to', 'from', 'with', 'about', 'as', 'into', 'like',
-  'through', 'after', 'before', 'between', 'under', 'over', 'is', 'are', 'was', 'were',
-  'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'this', 'that',
-  'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'my', 'your', 'his',
-  'her', 'its', 'our', 'their', 'us', 'me', 'him', 'them',
-  'let', 'const', 'var', 'function', 'class', 'import', 'export', 'from', 'return',
-  'try', 'catch', 'finally', 'throw', 'new', 'type', 'interface', 'async', 'await'
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'but',
+  'if',
+  'else',
+  'then',
+  'while',
+  'for',
+  'each',
+  'in',
+  'on',
+  'at',
+  'by',
+  'of',
+  'to',
+  'from',
+  'with',
+  'about',
+  'as',
+  'into',
+  'like',
+  'through',
+  'after',
+  'before',
+  'between',
+  'under',
+  'over',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'have',
+  'has',
+  'had',
+  'do',
+  'does',
+  'did',
+  'this',
+  'that',
+  'these',
+  'those',
+  'i',
+  'you',
+  'he',
+  'she',
+  'it',
+  'we',
+  'they',
+  'my',
+  'your',
+  'his',
+  'her',
+  'its',
+  'our',
+  'their',
+  'us',
+  'me',
+  'him',
+  'them',
+  'let',
+  'const',
+  'var',
+  'function',
+  'class',
+  'import',
+  'export',
+  'from',
+  'return',
+  'try',
+  'catch',
+  'finally',
+  'throw',
+  'new',
+  'type',
+  'interface',
+  'async',
+  'await',
 ]);
 
 export function tokenize(text: string): string[] {
@@ -82,7 +157,9 @@ export class VectorSearch {
       const hash = createHash('sha256').update(content).digest('hex');
 
       // Check cache
-      const cached = this.db.query('SELECT hash FROM files_index WHERE path = ?').get(entry.path) as { hash: string } | null;
+      const cached = this.db
+        .query('SELECT hash FROM files_index WHERE path = ?')
+        .get(entry.path) as { hash: string } | null;
       if (cached && cached.hash === hash) {
         continue;
       }
@@ -113,14 +190,18 @@ export class VectorSearch {
         hash,
         JSON.stringify(termsFreq),
         denseVector ? JSON.stringify(denseVector) : null,
-        new Date().toISOString()
+        new Date().toISOString(),
       );
 
       indexedCount++;
     }
 
     // 2. Remove files that no longer exist in the repository
-    const dbPaths = (this.db.query('SELECT path FROM files_index').all() as Array<{ path: string }>).map((r) => r.path);
+    const dbPaths = (
+      this.db.query('SELECT path FROM files_index').all() as Array<{
+        path: string;
+      }>
+    ).map((r) => r.path);
     const repoPaths = new Set(fileEntries.map((e) => e.path));
     for (const dbPath of dbPaths) {
       if (!repoPaths.has(dbPath)) {
@@ -139,7 +220,11 @@ export class VectorSearch {
     if (this.router) {
       try {
         const queryVector = await this.router.embed(query);
-        const rows = this.db.query('SELECT path, dense_vector FROM files_index WHERE dense_vector IS NOT NULL').all() as Array<{
+        const rows = this.db
+          .query(
+            'SELECT path, dense_vector FROM files_index WHERE dense_vector IS NOT NULL',
+          )
+          .all() as Array<{
           path: string;
           dense_vector: string;
         }>;
@@ -168,7 +253,9 @@ export class VectorSearch {
     }
 
     // 2. TF-IDF sparse similarity search
-    const rows = this.db.query('SELECT path, terms_freq FROM files_index').all() as Array<{
+    const rows = this.db
+      .query('SELECT path, terms_freq FROM files_index')
+      .all() as Array<{
       path: string;
       terms_freq: string;
     }>;
@@ -181,7 +268,10 @@ export class VectorSearch {
     const docFrequency: Record<string, number> = {};
     const parsedDocs = rows.map((row) => {
       const terms = JSON.parse(row.terms_freq) as Record<string, number>;
-      const totalTerms = Object.values(terms).reduce((sum, count) => sum + count, 0);
+      const totalTerms = Object.values(terms).reduce(
+        (sum, count) => sum + count,
+        0,
+      );
       for (const term of Object.keys(terms)) {
         docFrequency[term] = (docFrequency[term] || 0) + 1;
       }

@@ -7,7 +7,12 @@ export class TaskError extends Error {
   public recoverable: boolean;
   public details?: Record<string, unknown>;
 
-  constructor(message: string, code: string, recoverable = false, details?: Record<string, unknown>) {
+  constructor(
+    message: string,
+    code: string,
+    recoverable = false,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = 'TaskError';
     this.code = code;
@@ -21,7 +26,12 @@ export class ProviderError extends Error {
   public retryable: boolean;
   public cooldownMs?: number;
 
-  constructor(message: string, code: string, retryable = false, cooldownMs?: number) {
+  constructor(
+    message: string,
+    code: string,
+    retryable = false,
+    cooldownMs?: number,
+  ) {
     super(message);
     this.name = 'ProviderError';
     this.code = code;
@@ -35,7 +45,12 @@ export class ToolExecutionError extends Error {
   public errorType: string;
   public suggestions?: string[];
 
-  constructor(toolName: string, message: string, errorType: string, suggestions?: string[]) {
+  constructor(
+    toolName: string,
+    message: string,
+    errorType: string,
+    suggestions?: string[],
+  ) {
     super(message);
     this.name = 'ToolExecutionError';
     this.toolName = toolName;
@@ -52,7 +67,7 @@ export class StateTransitionError extends Error {
   constructor(from: string, to: string, allowedTransitions: string[]) {
     super(
       `Invalid state transition: ${from} -> ${to}. ` +
-      `Allowed transitions from ${from}: [${allowedTransitions.join(', ')}]`,
+        `Allowed transitions from ${from}: [${allowedTransitions.join(', ')}]`,
     );
     this.name = 'StateTransitionError';
     this.from = from;
@@ -66,7 +81,12 @@ export class AgentError extends Error {
   public code: string;
   public toolCalls?: Array<{ toolName: string; durationMs: number }>;
 
-  constructor(agentName: string, message: string, code: string, toolCalls?: Array<{ toolName: string; durationMs: number }>) {
+  constructor(
+    agentName: string,
+    message: string,
+    code: string,
+    toolCalls?: Array<{ toolName: string; durationMs: number }>,
+  ) {
     super(message);
     this.name = 'AgentError';
     this.agentName = agentName;

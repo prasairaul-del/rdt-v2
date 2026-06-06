@@ -1,10 +1,11 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { errorResult, successResult } from '../core/result';
 import type { Tool } from './types';
-import { successResult, errorResult } from '../core/result';
 
 export interface ApplyPatchInput {
   patch: string;
+  cwd?: string;
 }
 
 export interface ApplyPatchOutput {
@@ -61,10 +62,10 @@ function parsePatch(patch: string): ParsedPatch | null {
         hunks.push(currentHunk);
       }
       currentHunk = {
-        oldStart: parseInt(hunkMatch[1], 10),
-        oldCount: hunkMatch[2] ? parseInt(hunkMatch[2], 10) : 1,
-        newStart: parseInt(hunkMatch[3], 10),
-        newCount: hunkMatch[4] ? parseInt(hunkMatch[4], 10) : 1,
+        oldStart: Number.parseInt(hunkMatch[1], 10),
+        oldCount: hunkMatch[2] ? Number.parseInt(hunkMatch[2], 10) : 1,
+        newStart: Number.parseInt(hunkMatch[3], 10),
+        newCount: hunkMatch[4] ? Number.parseInt(hunkMatch[4], 10) : 1,
         lines: [],
       };
       inHunk = true;
@@ -78,7 +79,10 @@ function parsePatch(patch: string): ParsedPatch | null {
         currentHunk.lines.push({ type: 'remove', text: line.slice(1) });
       } else {
         // Context line (starts with space or empty)
-        currentHunk.lines.push({ type: 'context', text: line.startsWith(' ') ? line.slice(1) : line });
+        currentHunk.lines.push({
+          type: 'context',
+          text: line.startsWith(' ') ? line.slice(1) : line,
+        });
       }
     }
   }
@@ -184,12 +188,17 @@ function applyHunks(
     resultLines.pop();
   }
 
-  return { result: resultLines.join('\n'), linesAdded: totalAdded, linesRemoved: totalRemoved };
+  return {
+    result: resultLines.join('\n'),
+    linesAdded: totalAdded,
+    linesRemoved: totalRemoved,
+  };
 }
 
 export const applyPatchTool: Tool<ApplyPatchInput, ApplyPatchOutput> = {
   name: 'apply_patch',
-  description: 'Applies a unified diff patch to a file. Preserves unrelated content.',
+  description:
+    'Applies a unified diff patch to a file. Preserves unrelated content.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -213,12 +222,17 @@ export const applyPatchTool: Tool<ApplyPatchInput, ApplyPatchOutput> = {
         );
       }
 
-      const absPath = resolve(process.cwd(), parsed.file);
+      const cwd = input.cwd ?? process.cwd();
+      const absPath = resolve(cwd, parsed.file);
       if (!existsSync(absPath)) {
-        return errorResult('NOT_FOUND', `File '${parsed.file}' does not exist`, [
-          'Check the file path in the patch header',
-          'Create the file first with write_file if needed',
-        ]);
+        return errorResult(
+          'NOT_FOUND',
+          `File '${parsed.file}' does not exist`,
+          [
+            'Check the file path in the patch header',
+            'Create the file first with write_file if needed',
+          ],
+        );
       }
 
       const content = readFileSync(absPath, 'utf-8');

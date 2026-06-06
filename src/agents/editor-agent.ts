@@ -1,15 +1,60 @@
-import type { AgentInput, AgentOutput, EditResult } from './types';
-import type { Tool } from '../tools/types';
-import type { ProviderRouter } from '../router/provider-router';
 import type { CompletionMessage } from '../providers/types';
-import { readFileTool } from '../tools/read-file';
-import { writeFileTool } from '../tools/write-file';
+import type { ProviderRouter } from '../router/provider-router';
+import { applyPatchTool } from '../tools/apply-patch';
 import { gitDiffTool } from '../tools/git-diff';
+import { readFileTool } from '../tools/read-file';
+import type { Tool } from '../tools/types';
+import { writeFileTool } from '../tools/write-file';
+import type { AgentInput, AgentOutput, EditResult } from './types';
 
 export interface EditorAgentConfig {
   router: ProviderRouter;
   policyName: string;
   tools: Tool[];
+  /** Explicit working directory for file operations (avoids process.cwd() dependency) */
+  cwd?: string;
+}
+
+/**
+ * Robust JSON extraction from LLM output.
+ * Handles markdown code fences, leading text, and nested braces.
+ */
+function safeParseJson<T>(text: string): T | null {
+  // Strip markdown code fences if present
+  const stripped = text
+    .replace(/^```(?:json)?\s*/m, '')
+    .replace(/```\s*$/m, '')
+    .trim();
+
+  // Try full stripped string first
+  try {
+    return JSON.parse(stripped) as T;
+  } catch {
+    /* continue */
+  }
+
+  // Try outermost {...} block (non-greedy from first { to last })
+  const first = stripped.indexOf('{');
+  const last = stripped.lastIndexOf('}');
+  if (first !== -1 && last > first) {
+    try {
+      return JSON.parse(stripped.slice(first, last + 1)) as T;
+    } catch {
+      /* continue */
+    }
+  }
+
+  // Greedy fallback
+  const match = text.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      return JSON.parse(match[0]) as T;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -31,7 +76,11 @@ export async function editorAgent(
     if (!plan) {
       return {
         success: false,
-        error: { message: 'No plan provided to editor agent', code: 'MISSING_PLAN', recoverable: true },
+        error: {
+          message: 'No plan provided to editor agent',
+          code: 'MISSING_PLAN',
+          recoverable: true,
+        },
         modelUsed: 'none',
         providerUsed: 'none',
         toolCalls,
@@ -50,7 +99,10 @@ export async function editorAgent(
     const fileContents: Array<{ path: string; content: string }> = [];
     for (const filePath of targetFiles) {
       const readStart = performance.now();
-      const readResult = await readFileTool.execute({ path: filePath });
+      const readResult = await readFileTool.execute({
+        path: filePath,
+        cwd: config?.cwd,
+      });
       const readDuration = performance.now() - readStart;
       toolCalls.push({
         toolName: 'read_file',
@@ -62,10 +114,15 @@ export async function editorAgent(
       if (readResult.success && readResult.data) {
         fileContents.push({
           path: filePath,
-          content: typeof readResult.data === 'string' ? readResult.data : JSON.stringify(readResult.data),
+          content:
+            typeof readResult.data === 'string'
+              ? readResult.data
+              : JSON.stringify(readResult.data),
         });
       } else {
-        errors.push(`Could not read ${filePath}: ${readResult.error?.message ?? 'unknown'}`);
+        errors.push(
+          `Could not read ${filePath}: ${readResult.error?.message ?? 'unknown'}`,
+        );
       }
     }
 
@@ -78,7 +135,10 @@ export async function editorAgent(
           .join('\n\n');
 
         const planSteps = plan.steps
-          .map((s) => `  ${s.id}: ${s.description} (files: ${s.targetFiles.join(', ')}, risk: ${s.risk})`)
+          .map(
+            (s) =>
+              `  ${s.id}: ${s.description} (files: ${s.targetFiles.join(', ')}, risk: ${s.risk})`,
+          )
           .join('\n');
 
         // Extract feedback from previous review passes if available
@@ -87,9 +147,14 @@ export async function editorAgent(
           const lastReview = task.reviewResults[task.reviewResults.length - 1];
           if (!lastReview.approved) {
             const issuesStr = lastReview.issues.map((i) => `- ${i}`).join('\n');
-            const fixesStr = lastReview.requiredFixes.map((f) => `- ${f}`).join('\n');
+            const fixesStr = lastReview.requiredFixes
+              .map((f) => `- ${f}`)
+              .join('\n');
             const testsStr = lastReview.testsRun
-              .map((t) => `[${t.passed ? 'PASS' : 'FAIL'}] Command: ${t.command}\nOutput Summary:\n${t.outputSummary}`)
+              .map(
+                (t) =>
+                  `[${t.passed ? 'PASS' : 'FAIL'}] Command: ${t.command}\nOutput Summary:\n${t.outputSummary}`,
+              )
               .join('\n\n');
 
             reviewFeedback = `\n### FEEDBACK FROM PREVIOUS REVIEW PASS\nThe previous implementation attempt did not pass checks. Please fix the following:\n\nIssues identified:\n${issuesStr || 'None listed'}\n\nRequired fixes:\n${fixesStr || 'None listed'}\n\nCheck / Test Results:\n${testsStr || 'None run'}\n`;
@@ -99,18 +164,23 @@ export async function editorAgent(
         const messages: CompletionMessage[] = [
           {
             role: 'system',
-            content: `You are a senior software engineer applying code changes.
-Given a task request, implementation plan, file contents, and any previous review feedback or test failures, generate the actual code edits needed.
+            content: `You are a senior software engineer applying code changes using unified diff patches.
+Given a task request, implementation plan, file contents, and any previous review feedback or test failures, generate the unified diff patches needed.
 
 Project: ${project.project.name}
 Language: ${project.project.language}
 
 Respond with a JSON object containing:
 - summary: brief description of what was changed
-- edits: array of { file: string, content: string } where content is the COMPLETE new file content after applying changes
+- edits: array of { file: string, patch: string } where patch is a unified diff patch string.
 
-IMPORTANT: Each edit.content must be the FULL file content after edits, not just a diff or description.
-Keep edits minimal and targeted. Prefer surgical changes over rewrites.`,
+IMPORTANT: Each edit.patch MUST be a valid unified diff patch format. Ensure it includes:
+--- a/<file>
++++ b/<file>
+@@ -start,count +start,count @@
+ <lines with leading space for context, - for removal, + for additions>
+
+Keep patches minimal, precise, and targeted. Prefer surgical changes over rewriting whole files.`,
           },
           {
             role: 'user',
@@ -129,11 +199,11 @@ ${fileContext}`,
           { model: '', messages, max_tokens: 3000, temperature: 0.2 },
           { needsTools: false, needsJson: true },
         );
-
         if (routerResult.success && routerResult.response) {
           const content = routerResult.response.content;
           // Record provider usage
-          const successAttempt = routerResult.attempts[routerResult.attempts.length - 1];
+          const successAttempt =
+            routerResult.attempts[routerResult.attempts.length - 1];
           task.providerUsage.push({
             agentName: 'editor',
             providerId: successAttempt?.providerId ?? 'unknown',
@@ -142,48 +212,72 @@ ${fileContext}`,
             durationMs: successAttempt?.durationMs ?? 0,
           });
 
-          // Try to parse JSON from response to extract edit instructions
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            try {
-              const parsed = JSON.parse(jsonMatch[0]) as {
-                summary?: string;
-                edits?: Array<{ file: string; content: string }>;
-              };
-              if (parsed.edits && parsed.edits.length > 0) {
-                for (const edit of parsed.edits) {
-                  if (edit.content) {
-                    // Actually write the file with the new content
-                    const writeStart = performance.now();
-                    const writeResult = await writeFileTool.execute({
-                      path: edit.file,
-                      content: edit.content,
-                      allowOverwrite: true,
-                    });
-                    const writeDuration = performance.now() - writeStart;
-                    toolCalls.push({
-                      toolName: 'write_file',
-                      input: { path: edit.file, contentLength: edit.content.length },
-                      output: { success: writeResult.success },
-                      durationMs: Math.round(writeDuration),
-                    });
+          // Fix #2 — robust JSON extraction (handles markdown fences + nested JSON)
+          const parsed = safeParseJson<{
+            summary?: string;
+            edits?: Array<{ file: string; patch?: string; content?: string }>;
+          }>(content);
+          if (parsed?.edits && parsed.edits.length > 0) {
+            for (const edit of parsed.edits) {
+              if (edit.patch) {
+                const applyStart = performance.now();
+                const applyResult = await applyPatchTool.execute({
+                  patch: edit.patch,
+                  cwd: config?.cwd,
+                });
+                const applyDuration = performance.now() - applyStart;
+                toolCalls.push({
+                  toolName: 'apply_patch',
+                  input: { path: edit.file, patchLength: edit.patch.length },
+                  output: { success: applyResult.success },
+                  durationMs: Math.round(applyDuration),
+                });
 
-                    if (writeResult.success) {
-                      changedFiles.push(edit.file);
-                    } else {
-                      errors.push(`Failed to write ${edit.file}: ${writeResult.error?.message ?? 'unknown'}`);
-                    }
-                  }
+                if (applyResult.success) {
+                  changedFiles.push(edit.file);
+                } else {
+                  errors.push(
+                    `Failed to apply patch to ${edit.file}: ${applyResult.error?.message ?? 'unknown'}`,
+                  );
+                }
+              } else if (edit.content) {
+                // Fallback: full content rewrite if LLM didn't return a patch
+                const writeStart = performance.now();
+                const writeResult = await writeFileTool.execute({
+                  path: edit.file,
+                  content: edit.content,
+                  allowOverwrite: true,
+                  cwd: config?.cwd,
+                });
+                const writeDuration = performance.now() - writeStart;
+                toolCalls.push({
+                  toolName: 'write_file',
+                  input: {
+                    path: edit.file,
+                    contentLength: edit.content.length,
+                  },
+                  output: { success: writeResult.success },
+                  durationMs: Math.round(writeDuration),
+                });
+
+                if (writeResult.success) {
+                  changedFiles.push(edit.file);
+                } else {
+                  errors.push(
+                    `Failed to write ${edit.file}: ${writeResult.error?.message ?? 'unknown'}`,
+                  );
                 }
               }
-            } catch {
-              // JSON parse failed — fall through to report planned files
             }
+          } else if (!parsed) {
+            errors.push(
+              'LLM response did not contain parseable JSON edit instructions',
+            );
           }
 
           // Capture diff after edits
           const diffAfterStart = performance.now();
-          const diffAfter = await gitDiffTool.execute({});
+          const diffAfter = await gitDiffTool.execute({ cwd: config?.cwd });
           const diffAfterDuration = performance.now() - diffAfterStart;
           toolCalls.push({
             toolName: 'git_diff',

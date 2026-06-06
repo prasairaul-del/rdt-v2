@@ -104,7 +104,13 @@ export function createDefaultConfig(): RdtConfig {
       },
       reviewer: {
         model_policy: 'smart_reasoning',
-        tools: ['read_file', 'git_diff', 'run_shell', 'test_runner', 'git_status_snapshot'],
+        tools: [
+          'read_file',
+          'git_diff',
+          'run_shell',
+          'test_runner',
+          'git_status_snapshot',
+        ],
       },
     },
   };

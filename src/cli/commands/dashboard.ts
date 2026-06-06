@@ -1,10 +1,10 @@
-import { Command } from 'commander';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
-import { TaskLogStore } from '../../storage/task-log-store';
+import { fileURLToPath } from 'node:url';
+import { Command } from 'commander';
 import { loadConfig } from '../../config/load-config';
 import { globalEventBus } from '../../core/events';
+import { TaskLogStore } from '../../storage/task-log-store';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,36 +12,144 @@ const __dirname = dirname(__filename);
 export function createDashboardCommand(): Command {
   return new Command('dashboard')
     .description('Start the local dashboard Web UI server')
-    .option('-p, --port <number>', 'Port to run the dashboard server on', '3000')
+    .option(
+      '-p, --port <number>',
+      'Port to run the dashboard server on',
+      '3000',
+    )
     .option('--open-vscode', 'Open the dashboard inside VS Code simple browser')
     .action(async (options) => {
-      const port = parseInt(options.port, 10);
+      const port = Number.parseInt(options.port, 10);
       const projectRoot = process.cwd();
       const dbPath = resolve(projectRoot, '.rdt', 'tasks.db');
 
       const logStore = new TaskLogStore(dbPath);
       const configResult = loadConfig(projectRoot);
 
-      console.log(`\n\x1b[32m[rdt-dashboard] Starting server on http://localhost:${port}\x1b[0m`);
+      console.log(
+        `\n\x1b[32m[rdt-dashboard] Starting server on http://localhost:${port}\x1b[0m`,
+      );
       console.log(`[rdt-dashboard] Reading logs database from: ${dbPath}`);
-      console.log(`[rdt-dashboard] Monitoring events on workspace: ${projectRoot}\n`);
+      console.log(
+        `[rdt-dashboard] Monitoring events on workspace: ${projectRoot}\n`,
+      );
 
       if (options.openVscode) {
         try {
           const { exec } = await import('node:child_process');
           exec(`code --command simpleBrowser.show http://localhost:${port}`);
-          console.log(`[rdt-dashboard] Triggered VS Code command: simpleBrowser.show http://localhost:${port}\n`);
+          console.log(
+            `[rdt-dashboard] Triggered VS Code command: simpleBrowser.show http://localhost:${port}\n`,
+          );
         } catch (err) {
-          console.warn('[rdt-dashboard] Failed to launch VS Code command:', err);
+          console.warn(
+            '[rdt-dashboard] Failed to launch VS Code command:',
+            err,
+          );
         }
       }
 
-      // Keep a list of SSE client connections to broadcast events
+      // SSE clients for real-time streaming
       const clients = new Set<ReadableStreamDefaultController>();
-      let isTaskRunning = false;
 
-      // Listen to the globalEventBus and stream to SSE clients in real-time
-      globalEventBus.onAny((event) => {
+      // Fix #4 — persist running state in DB, not just memory.
+      // On startup, heal any stale 'running' tasks (crashed mid-run).
+      const staleRunning = logStore
+        .getRecentLogs(100)
+        .filter((t) => t.status === 'running');
+      for (const stale of staleRunning) {
+        logStore.updateLog(stale.id, {
+          status: 'failed',
+          errorMessage: 'Server restarted while task was running',
+        });
+      }
+
+      // Fix #14 — cancellation flag (per-task, keyed by id)
+      let cancelRequested = false;
+      let currentRunningTaskId: string | null = null;
+      let processingQueue = false;
+
+      async function processQueue(): Promise<void> {
+        if (processingQueue) return;
+        processingQueue = true;
+        try {
+          while (true) {
+            const allRecent = logStore.getRecentLogs(100);
+            const runningTask = allRecent.find((t) => t.status === 'running');
+            if (runningTask) {
+              break;
+            }
+
+            const queuedTasks = allRecent
+              .filter((t) => t.status === 'queued')
+              .reverse();
+            if (queuedTasks.length === 0) {
+              break;
+            }
+
+            const nextTask = queuedTasks[0];
+
+            logStore.updateLog(nextTask.id, { status: 'running' });
+            currentRunningTaskId = nextTask.id;
+            cancelRequested = false;
+
+            broadcastEvent({
+              type: 'task:started',
+              taskId: nextTask.id,
+              timestamp: new Date().toISOString(),
+              data: { running: true },
+            });
+
+            try {
+              const { TaskRunner } = await import('../../core/task-runner');
+              const currentConfig = loadConfig(projectRoot);
+              const runner = new TaskRunner({
+                projectRoot,
+                rdtConfig: currentConfig.config,
+                logStore,
+                checkCancellation: () => cancelRequested,
+              });
+              await runner.run(nextTask.request);
+            } catch (err) {
+              console.error(
+                '[rdt-dashboard] Background task execution failed:',
+                err,
+              );
+              logStore.updateLog(nextTask.id, {
+                status: 'failed',
+                errorMessage: err instanceof Error ? err.message : String(err),
+              });
+            } finally {
+              const currentLog = logStore.getLog(nextTask.id);
+              const finalStatus = cancelRequested
+                ? 'cancelled'
+                : currentLog?.status === 'failed'
+                  ? 'failed'
+                  : 'success';
+
+              logStore.updateLog(nextTask.id, {
+                status: finalStatus,
+                finishedAt: new Date().toISOString(),
+              });
+
+              currentRunningTaskId = null;
+              broadcastEvent({
+                type: 'task:completed',
+                taskId: nextTask.id,
+                timestamp: new Date().toISOString(),
+                data: { running: false, status: finalStatus },
+              });
+            }
+          }
+        } finally {
+          processingQueue = false;
+        }
+      }
+
+      // Process queue on server startup to handle any queued tasks
+      processQueue();
+
+      function broadcastEvent(event: Record<string, unknown>): void {
         const payload = `data: ${JSON.stringify(event)}\n\n`;
         for (const client of clients) {
           try {
@@ -50,6 +158,11 @@ export function createDashboardCommand(): Command {
             clients.delete(client);
           }
         }
+      }
+
+      // Fix #13 — emit task:log events from the global event bus to SSE clients
+      globalEventBus.onAny((event) => {
+        broadcastEvent(event as unknown as Record<string, unknown>);
       });
 
       Bun.serve({
@@ -57,10 +170,9 @@ export function createDashboardCommand(): Command {
         async fetch(req) {
           const url = new URL(req.url);
 
-          // CORS Headers for API debugging
           const corsHeaders = {
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type',
           };
 
@@ -75,7 +187,7 @@ export function createDashboardCommand(): Command {
                 clients.add(controller);
               },
               cancel(controller) {
-                clients.delete(controller as any);
+                clients.delete(controller as ReadableStreamDefaultController);
               },
             });
             return new Response(stream, {
@@ -88,93 +200,124 @@ export function createDashboardCommand(): Command {
             });
           }
 
-          // API: Get Task Lock Status
+          // Fix #4 — API: Get Task Lock Status (reads from DB, not memory)
           if (url.pathname === '/api/status' && req.method === 'GET') {
-            return new Response(JSON.stringify({ running: isTaskRunning }), {
-              headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            });
+            const allLogs = logStore.getRecentLogs(100);
+            const running = allLogs.some((t) => t.status === 'running');
+            const runningTask = allLogs.find((t) => t.status === 'running');
+            const queueCount = allLogs.filter(
+              (t) => t.status === 'queued',
+            ).length;
+            return new Response(
+              JSON.stringify({
+                running,
+                currentTaskId: runningTask?.id ?? null,
+                queueCount,
+              }),
+              {
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+              },
+            );
           }
 
-          // API: Trigger Task Execution
-          if (url.pathname === '/api/tasks' && req.method === 'POST') {
-            if (isTaskRunning) {
-              return new Response(JSON.stringify({ error: 'A task is already running in this workspace.' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json', ...corsHeaders },
-              });
+          // Fix #14 — API: Cancel Running Task
+          if (
+            url.pathname === '/api/tasks/current' &&
+            req.method === 'DELETE'
+          ) {
+            if (!currentRunningTaskId) {
+              return new Response(
+                JSON.stringify({ error: 'No task is currently running.' }),
+                {
+                  status: 404,
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                  },
+                },
+              );
             }
+            cancelRequested = true;
+            globalEventBus.emit('task:state_change', currentRunningTaskId, {
+              from: 'running',
+              to: 'cancelled',
+            });
+            return new Response(
+              JSON.stringify({
+                success: true,
+                message: 'Cancellation requested.',
+              }),
+              {
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+              },
+            );
+          }
 
+          // API: Trigger Task Execution (now Queued)
+          if (url.pathname === '/api/tasks' && req.method === 'POST') {
             try {
-              const body = await req.json() as { request?: string };
+              const body = (await req.json()) as { request?: string };
               const requestPrompt = body.request?.trim() ?? '';
               if (!requestPrompt) {
-                return new Response(JSON.stringify({ error: 'Task request prompt cannot be empty.' }), {
-                  status: 400,
-                  headers: { 'Content-Type': 'application/json', ...corsHeaders },
-                });
+                return new Response(
+                  JSON.stringify({
+                    error: 'Task request prompt cannot be empty.',
+                  }),
+                  {
+                    status: 400,
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...corsHeaders,
+                    },
+                  },
+                );
               }
 
-              // Lock the state machine and run task in background
-              isTaskRunning = true;
+              // Create log and insert in DB with status 'queued'
+              const taskLog = logStore.createLog(requestPrompt);
+              logStore.updateLog(taskLog.id, { status: 'queued' });
 
-              // Broadcast task:started to UI
-              const startEvent = {
-                type: 'task:started',
-                taskId: 'system',
+              broadcastEvent({
+                type: 'task:queued',
+                taskId: taskLog.id,
                 timestamp: new Date().toISOString(),
-                data: { running: true }
-              };
-              const startPayload = `data: ${JSON.stringify(startEvent)}\n\n`;
-              for (const client of clients) {
-                try {
-                  client.enqueue(new TextEncoder().encode(startPayload));
-                } catch {
-                  clients.delete(client);
-                }
-              }
-
-              // Asynchronous background run
-              (async () => {
-                try {
-                  const { TaskRunner } = await import('../../core/task-runner');
-                  const currentConfig = loadConfig(projectRoot);
-                  const runner = new TaskRunner({
-                    projectRoot,
-                    rdtConfig: currentConfig.config,
-                  });
-                  await runner.run(requestPrompt);
-                } catch (err) {
-                  console.error('[rdt-dashboard] Background task execution failed:', err);
-                } finally {
-                  isTaskRunning = false;
-
-                  // Broadcast task:completed to UI
-                  const completeEvent = {
-                    type: 'task:completed',
-                    taskId: 'system',
-                    timestamp: new Date().toISOString(),
-                    data: { running: false }
-                  };
-                  const completePayload = `data: ${JSON.stringify(completeEvent)}\n\n`;
-                  for (const client of clients) {
-                    try {
-                      client.enqueue(new TextEncoder().encode(completePayload));
-                    } catch {
-                      clients.delete(client);
-                    }
-                  }
-                }
-              })();
-
-              return new Response(JSON.stringify({ success: true, message: 'Task started successfully' }), {
-                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+                data: {
+                  queueLength: logStore
+                    .getRecentLogs(100)
+                    .filter((t) => t.status === 'queued').length,
+                },
               });
 
+              // Process queue asynchronously
+              processQueue();
+
+              return new Response(
+                JSON.stringify({
+                  success: true,
+                  taskId: taskLog.id,
+                  status: 'queued',
+                  message: 'Task queued successfully',
+                }),
+                {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                  },
+                },
+              );
             } catch (err) {
-              return new Response(JSON.stringify({ error: 'Invalid JSON request payload: ' + String(err) }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json', ...corsHeaders },
-              });
+              return new Response(
+                JSON.stringify({
+                  error: `Invalid JSON request payload: ${String(err)}`,
+                }),
+                {
+                  status: 400,
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                  },
+                },
+              );
             }
           }
 
@@ -193,16 +336,57 @@ export function createDashboardCommand(): Command {
             }
           }
 
+          // API: Get Specific Task Logs
+          if (
+            url.pathname.startsWith('/api/tasks/') &&
+            url.pathname.endsWith('/logs') &&
+            req.method === 'GET'
+          ) {
+            const id = url.pathname.slice(
+              '/api/tasks/'.length,
+              -'/logs'.length,
+            );
+            try {
+              const logFilePath = resolve(
+                projectRoot,
+                '.rdt',
+                'logs',
+                `${id}.log`,
+              );
+              if (existsSync(logFilePath)) {
+                const content = readFileSync(logFilePath, 'utf-8');
+                return new Response(content, {
+                  headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+                });
+              }
+              return new Response('No log file found for this task.', {
+                status: 404,
+                headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+              });
+            } catch (err) {
+              return new Response(String(err), {
+                status: 500,
+                headers: { 'Content-Type': 'text/plain', ...corsHeaders },
+              });
+            }
+          }
+
           // API: Get Specific Task Details
           if (url.pathname.startsWith('/api/tasks/') && req.method === 'GET') {
             const id = url.pathname.slice('/api/tasks/'.length);
             try {
               const log = logStore.getLog(id);
               if (!log) {
-                return new Response(JSON.stringify({ error: 'Task not found' }), {
-                  status: 404,
-                  headers: { 'Content-Type': 'application/json', ...corsHeaders },
-                });
+                return new Response(
+                  JSON.stringify({ error: 'Task not found' }),
+                  {
+                    status: 404,
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...corsHeaders,
+                    },
+                  },
+                );
               }
               return new Response(JSON.stringify(log), {
                 headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -222,12 +406,53 @@ export function createDashboardCommand(): Command {
             });
           }
 
+          // Fix #7 — API: Get Live Provider Health (from provider state store)
+          if (url.pathname === '/api/providers' && req.method === 'GET') {
+            try {
+              const { ProviderStateStore } = await import(
+                '../../storage/provider-state-store'
+              );
+              const stateStore = new ProviderStateStore();
+              const allModels = stateStore.getAll();
+              const providersHealth = allModels.map((m) => ({
+                providerId: m.providerId,
+                modelId: m.modelId,
+                enabled: m.enabled,
+                quality: m.quality,
+                cost: m.cost,
+                cooldownUntil: m.cooldownUntil,
+                lastErrorAt: m.lastErrorAt,
+                lastErrorCode: m.lastErrorCode,
+                requestsThisMinute: m.requestsThisMinute,
+                requestsToday: m.requestsToday,
+                status:
+                  m.cooldownUntil && new Date(m.cooldownUntil) > new Date()
+                    ? 'cooldown'
+                    : m.lastErrorAt && !m.cooldownUntil
+                      ? 'degraded'
+                      : 'healthy',
+              }));
+              return new Response(JSON.stringify(providersHealth), {
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+              });
+            } catch (err) {
+              return new Response(JSON.stringify({ error: String(err) }), {
+                status: 500,
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+              });
+            }
+          }
+
           // API: Get Workspace Files
           if (url.pathname === '/api/files' && req.method === 'GET') {
             try {
-              const { scanRepo } = await import('../../project-context/repo-scanner');
+              const { scanRepo } = await import(
+                '../../project-context/repo-scanner'
+              );
               const repoMap = scanRepo(projectRoot);
-              const files = repoMap.entries.filter(e => e.type === 'file').map(e => e.path);
+              const files = repoMap.entries
+                .filter((e) => e.type === 'file')
+                .map((e) => e.path);
               return new Response(JSON.stringify(files), {
                 headers: { 'Content-Type': 'application/json', ...corsHeaders },
               });
@@ -249,10 +474,16 @@ export function createDashboardCommand(): Command {
                   headers: { 'Content-Type': 'text/html' },
                 });
               } catch (err) {
-                return new Response(`Error reading dashboard HTML: ${String(err)}`, { status: 500 });
+                return new Response(
+                  `Error reading dashboard HTML: ${String(err)}`,
+                  { status: 500 },
+                );
               }
             }
-            return new Response(`<h1>Dashboard Asset Not Found</h1><p>Expected path: ${htmlPath}</p>`, { status: 404 });
+            return new Response(
+              `<h1>Dashboard Asset Not Found</h1><p>Expected path: ${htmlPath}</p>`,
+              { status: 404 },
+            );
           }
 
           return new Response('Not Found', { status: 404 });

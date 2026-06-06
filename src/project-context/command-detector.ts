@@ -12,9 +12,14 @@ export function detectCommands(projectRoot: string): DetectedCommands {
   const pm = detectPackageManager(projectRoot);
   const pkgScripts = readPackageScripts(projectRoot);
 
-  const testCommand = findScript(pkgScripts, ['test', 'vitest', 'jest', 'mocha', 'ava'], pm)
-    ?? detectPythonTestCommand(projectRoot);
-  const lintCommand = findScript(pkgScripts, ['lint', 'biome check', 'eslint', 'tsc --noEmit', 'typecheck'], pm);
+  const testCommand =
+    findScript(pkgScripts, ['test', 'vitest', 'jest', 'mocha', 'ava'], pm) ??
+    detectPythonTestCommand(projectRoot);
+  const lintCommand = findScript(
+    pkgScripts,
+    ['lint', 'biome check', 'eslint', 'tsc --noEmit', 'typecheck'],
+    pm,
+  );
   const buildCommand = findScript(pkgScripts, ['build', 'compile'], pm);
 
   return { testCommand, lintCommand, buildCommand, packageManager: pm };
@@ -59,7 +64,11 @@ function readPackageScripts(projectRoot: string): Record<string, string> {
   }
 }
 
-function findScript(scripts: Record<string, string>, candidates: string[], pm: string | null): string | null {
+function findScript(
+  scripts: Record<string, string>,
+  candidates: string[],
+  pm: string | null,
+): string | null {
   for (const key of candidates) {
     if (scripts[key]) {
       const executor = pm || 'npm';

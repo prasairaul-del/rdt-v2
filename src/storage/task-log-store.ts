@@ -1,17 +1,18 @@
-import { SqliteStore } from './sqlite';
-import type { CompletionUsage } from '../providers/types';
 import type { SQLQueryBindings } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
+import type { CompletionUsage } from '../providers/types';
+import { SqliteStore } from './sqlite';
 
 export interface TaskLog {
   id: string;
   request: string;
-  status: 'created' | 'running' | 'success' | 'failed';
+  status: 'created' | 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
   startedAt: string;
   finishedAt?: string;
   selectedFiles?: string[];
   planSummary?: string;
   changedFiles?: string[];
+  diff?: string; // Fix #3 — persisted diff for the dashboard Surgical Diff tab
   testsRun?: string[];
   providersUsed?: string[];
   usage?: CompletionUsage;
@@ -31,6 +32,7 @@ export class TaskLogStore extends SqliteStore {
         selected_files TEXT,
         plan_summary TEXT,
         changed_files TEXT,
+        diff TEXT,
         tests_run TEXT,
         providers_used TEXT,
         usage_json TEXT,
@@ -40,9 +42,9 @@ export class TaskLogStore extends SqliteStore {
     `);
   }
 
-  createLog(request: string): TaskLog {
+  createLog(request: string, id?: string): TaskLog {
     const log: TaskLog = {
-      id: `task_${randomUUID().slice(0, 8)}`,
+      id: id ?? `task_${randomUUID().slice(0, 8)}`,
       request,
       status: 'created',
       startedAt: new Date().toISOString(),
@@ -67,6 +69,7 @@ export class TaskLogStore extends SqliteStore {
       selectedFiles: 'selected_files',
       planSummary: 'plan_summary',
       changedFiles: 'changed_files',
+      diff: 'diff',
       testsRun: 'tests_run',
       providersUsed: 'providers_used',
       finalSummary: 'final_summary',
@@ -96,18 +99,18 @@ export class TaskLogStore extends SqliteStore {
   }
 
   getLog(id: string): TaskLog | null {
-    const row = this.db.query(
-      `SELECT * FROM task_logs WHERE id = ?`,
-    ).get(id) as Record<string, unknown> | null;
+    const row = this.db
+      .query('SELECT * FROM task_logs WHERE id = ?')
+      .get(id) as Record<string, unknown> | null;
 
     if (!row) return null;
     return this.rowToLog(row);
   }
 
   getRecentLogs(limit = 10): TaskLog[] {
-    const rows = this.db.query(
-      `SELECT * FROM task_logs ORDER BY started_at DESC LIMIT ?`,
-    ).all(limit) as Record<string, unknown>[];
+    const rows = this.db
+      .query('SELECT * FROM task_logs ORDER BY started_at DESC LIMIT ?')
+      .all(limit) as Record<string, unknown>[];
 
     return rows.map((r) => this.rowToLog(r));
   }
@@ -127,6 +130,7 @@ export class TaskLogStore extends SqliteStore {
       selectedFiles: tryParseJsonArray(row.selected_files),
       planSummary: row.plan_summary as string | undefined,
       changedFiles: tryParseJsonArray(row.changed_files),
+      diff: row.diff as string | undefined,
       testsRun: tryParseJsonArray(row.tests_run),
       providersUsed: tryParseJsonArray(row.providers_used),
       usage: tryParseJson(row.usage_json) as CompletionUsage | undefined,

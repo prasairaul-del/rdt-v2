@@ -1,8 +1,18 @@
-import { describe, it, expect } from 'vitest';
-import { createTaskState, transitionState, addTaskError } from '../../src/core/task-state';
+import { describe, expect, it } from 'vitest';
+import {
+  AgentError,
+  ProviderError,
+  StateTransitionError,
+  TaskError,
+  ToolExecutionError,
+} from '../../src/core/errors';
 import { TaskEventBus, globalEventBus } from '../../src/core/events';
 import { TaskLogger } from '../../src/core/logger';
-import { TaskError, ProviderError, ToolExecutionError, StateTransitionError, AgentError } from '../../src/core/errors';
+import {
+  addTaskError,
+  createTaskState,
+  transitionState,
+} from '../../src/core/task-state';
 
 // ── Task State Machine ───────────────────────────────────────────
 
@@ -41,7 +51,9 @@ describe('TaskState', () => {
   it('should throw on invalid transition', () => {
     const state = createTaskState('test');
     // Can't go from created directly to editing
-    expect(() => transitionState(state, 'editing')).toThrow('Invalid state transition');
+    expect(() => transitionState(state, 'editing')).toThrow(
+      'Invalid state transition',
+    );
   });
 
   it('should throw on transition from terminal state', () => {
@@ -57,7 +69,9 @@ describe('TaskState', () => {
     transitionState(state, 'done');
     expect(state.status).toBe('done');
     // Can't transition from 'done'
-    expect(() => transitionState(state, 'failed')).toThrow('Invalid state transition');
+    expect(() => transitionState(state, 'failed')).toThrow(
+      'Invalid state transition',
+    );
   });
 
   it('should set finishedAt on done and failed states', () => {
@@ -189,8 +203,8 @@ describe('TaskEventBus', () => {
 
     bus.emitStateChange('t1', 'created', 'capturing_baseline');
     expect(received).toBeDefined();
-    expect(received!.from).toBe('created');
-    expect(received!.to).toBe('capturing_baseline');
+    expect(received?.from).toBe('created');
+    expect(received?.to).toBe('capturing_baseline');
   });
 
   it('should emit error events', () => {
@@ -202,8 +216,8 @@ describe('TaskEventBus', () => {
     });
 
     bus.emitError('t1', 'Something broke', 'ERR_CODE');
-    expect(received!.message).toBe('Something broke');
-    expect(received!.code).toBe('ERR_CODE');
+    expect(received?.message).toBe('Something broke');
+    expect(received?.code).toBe('ERR_CODE');
   });
 
   it('should emit progress events', () => {
@@ -215,13 +229,15 @@ describe('TaskEventBus', () => {
     });
 
     bus.emitProgress('t1', 'editing', 0.5);
-    expect(received!.step).toBe('editing');
-    expect(received!.progress).toBe(0.5);
+    expect(received?.step).toBe('editing');
+    expect(received?.progress).toBe(0.5);
   });
 
   it('should not crash when listener throws', () => {
     const bus = new TaskEventBus();
-    bus.on('task:created', () => { throw new Error('listener error'); });
+    bus.on('task:created', () => {
+      throw new Error('listener error');
+    });
 
     // Should not throw
     expect(() => bus.emit('task:created', 't1')).not.toThrow();
@@ -230,8 +246,12 @@ describe('TaskEventBus', () => {
   it('should clear all listeners', () => {
     const bus = new TaskEventBus();
     let count = 0;
-    bus.on('task:created', () => { count++; });
-    bus.onAny(() => { count++; });
+    bus.on('task:created', () => {
+      count++;
+    });
+    bus.onAny(() => {
+      count++;
+    });
 
     bus.clear();
     bus.emit('task:created', 't1');
@@ -241,7 +261,9 @@ describe('TaskEventBus', () => {
   it('should include timestamp in events', () => {
     const bus = new TaskEventBus();
     let event: any;
-    bus.on('task:created', (e) => { event = e; });
+    bus.on('task:created', (e) => {
+      event = e;
+    });
     bus.emit('task:created', 't1');
     expect(event.timestamp).toBeDefined();
     expect(new Date(event.timestamp).getTime()).not.toBeNaN();
@@ -329,7 +351,9 @@ describe('TaskLogger', () => {
 
 describe('Error classes', () => {
   it('TaskError should have code and recoverable flag', () => {
-    const err = new TaskError('Something went wrong', 'TEST_ERR', true, { detail: 'info' });
+    const err = new TaskError('Something went wrong', 'TEST_ERR', true, {
+      detail: 'info',
+    });
     expect(err.message).toBe('Something went wrong');
     expect(err.code).toBe('TEST_ERR');
     expect(err.recoverable).toBe(true);
@@ -344,7 +368,12 @@ describe('Error classes', () => {
   });
 
   it('ProviderError should have code and retryable flag', () => {
-    const err = new ProviderError('Rate limited', 'RATE_LIMITED', false, 30_000);
+    const err = new ProviderError(
+      'Rate limited',
+      'RATE_LIMITED',
+      false,
+      30_000,
+    );
     expect(err.message).toBe('Rate limited');
     expect(err.code).toBe('RATE_LIMITED');
     expect(err.retryable).toBe(false);
@@ -359,7 +388,12 @@ describe('Error classes', () => {
   });
 
   it('ToolExecutionError should have tool name and suggestions', () => {
-    const err = new ToolExecutionError('read_file', 'File not found', 'NOT_FOUND', ['Check path']);
+    const err = new ToolExecutionError(
+      'read_file',
+      'File not found',
+      'NOT_FOUND',
+      ['Check path'],
+    );
     expect(err.toolName).toBe('read_file');
     expect(err.errorType).toBe('NOT_FOUND');
     expect(err.suggestions).toEqual(['Check path']);
@@ -367,12 +401,19 @@ describe('Error classes', () => {
   });
 
   it('ToolExecutionError should work without suggestions', () => {
-    const err = new ToolExecutionError('write_file', 'Permission denied', 'PERMISSION_DENIED');
+    const err = new ToolExecutionError(
+      'write_file',
+      'Permission denied',
+      'PERMISSION_DENIED',
+    );
     expect(err.suggestions).toBeUndefined();
   });
 
   it('StateTransitionError should include from/to and allowed transitions', () => {
-    const err = new StateTransitionError('created', 'editing', ['created', 'failed']);
+    const err = new StateTransitionError('created', 'editing', [
+      'created',
+      'failed',
+    ]);
     expect(err.from).toBe('created');
     expect(err.to).toBe('editing');
     expect(err.allowedTransitions).toEqual(['created', 'failed']);
@@ -386,7 +427,7 @@ describe('Error classes', () => {
     expect(err.agentName).toBe('planner');
     expect(err.code).toBe('PLANNER_ERROR');
     expect(err.toolCalls).toHaveLength(1);
-    expect(err.toolCalls![0].toolName).toBe('read_file');
+    expect(err.toolCalls?.[0].toolName).toBe('read_file');
   });
 
   it('AgentError should work without tool calls', () => {

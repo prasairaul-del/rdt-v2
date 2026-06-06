@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command } from 'commander';
-import { detectProject } from '../../project-context/detect-project';
-import { writeConfig } from '../../config/load-config';
 import { createDefaultConfig } from '../../config/defaults';
+import { writeConfig } from '../../config/load-config';
+import { detectProject } from '../../project-context/detect-project';
 
 const AGENTS_MD_CONTENT = `# AGENTS.md
 
@@ -91,7 +91,9 @@ export function createInitCommand(): Command {
       // Write config
       const configPath = resolve(rdtDir, 'config.yaml');
       if (existsSync(configPath) && !options.force) {
-        console.log(`\n${configPath} already exists. Use --force to overwrite.`);
+        console.log(
+          `\n${configPath} already exists. Use --force to overwrite.`,
+        );
       } else {
         const config = createDefaultConfig();
         config.project.name = info.name;
@@ -108,7 +110,7 @@ export function createInitCommand(): Command {
         writeFileSync(agentsPath, AGENTS_MD_CONTENT, 'utf-8');
         console.log(`  AGENTS.md: ${agentsPath}`);
       } else {
-        console.log(`  AGENTS.md: exists (use --force to overwrite)`);
+        console.log('  AGENTS.md: exists (use --force to overwrite)');
       }
 
       // Write knowledge.md
@@ -117,7 +119,7 @@ export function createInitCommand(): Command {
         writeFileSync(knowledgePath, KNOWLEDGE_MD_CONTENT, 'utf-8');
         console.log(`  knowledge.md: ${knowledgePath}`);
       } else {
-        console.log(`  knowledge.md: exists (use --force to overwrite)`);
+        console.log('  knowledge.md: exists (use --force to overwrite)');
       }
 
       console.log('\nRDT initialized successfully.');

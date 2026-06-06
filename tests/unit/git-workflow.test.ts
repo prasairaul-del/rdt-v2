@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TaskRunner } from '../../src/core/task-runner';
 import { execSync, spawnSync } from 'node:child_process';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TaskRunner } from '../../src/core/task-runner';
 
 // Mock node:child_process
 vi.mock('node:child_process', () => {
@@ -19,7 +19,6 @@ vi.mock('node:child_process', () => {
 // Mock bun:sqlite
 vi.mock('bun:sqlite', () => ({
   Database: class MockDatabase {
-    constructor() {}
     exec() {}
     run() {}
     query() {
@@ -35,7 +34,7 @@ vi.mock('../../src/storage/task-log-store', () => {
     TaskLogStore: class MockTaskLogStore {
       createLog() {}
       updateLog() {}
-    }
+    },
   };
 });
 
@@ -45,10 +44,14 @@ vi.mock('../../src/config/load-config', () => {
       config: {
         version: 1,
         project: { name: 'test' },
-        runtime: { git_feature_branch: true, git_auto_commit: true, require_git_repo: false },
+        runtime: {
+          git_feature_branch: true,
+          git_auto_commit: true,
+          require_git_repo: false,
+        },
         agents: {},
-      }
-    })
+      },
+    }),
   };
 });
 
@@ -61,7 +64,13 @@ describe('Git Feature Branch Workflow', () => {
       projectRoot: '/mock/project',
       rdtConfig: {
         version: 1,
-        project: { name: 'test', language: 'typescript', package_manager: 'bun', test_command: 'bun test', lint_command: '' },
+        project: {
+          name: 'test',
+          language: 'typescript',
+          package_manager: 'bun',
+          test_command: 'bun test',
+          lint_command: '',
+        },
         runtime: {
           max_agent_steps: 10,
           max_edit_passes: 1,
@@ -74,9 +83,17 @@ describe('Git Feature Branch Workflow', () => {
           git_auto_commit: true,
         },
         context_budget: {
-          default_max_input_tokens: 1000, reserved_output_tokens: 100, repo_map_max_tokens: 100, file_picker_max_tokens: 100,
-          planner_max_tokens: 100, editor_max_tokens: 100, reviewer_max_tokens: 100, max_file_read_tokens: 100, max_total_file_tokens_per_step: 100,
-          truncation_strategy: 'summarize', never_truncate: [],
+          default_max_input_tokens: 1000,
+          reserved_output_tokens: 100,
+          repo_map_max_tokens: 100,
+          file_picker_max_tokens: 100,
+          planner_max_tokens: 100,
+          editor_max_tokens: 100,
+          reviewer_max_tokens: 100,
+          max_file_read_tokens: 100,
+          max_total_file_tokens_per_step: 100,
+          truncation_strategy: 'summarize',
+          never_truncate: [],
         },
         providers: [],
         model_policies: {},
@@ -86,7 +103,11 @@ describe('Git Feature Branch Workflow', () => {
 
     // Mock internal methods of runner that require real agent executions
     (runner as any).captureBaseline = vi.fn().mockImplementation((state) => {
-      state.baselines = { headHash: 'mock-commit-hash', dirtyFiles: [], rdtTouchedFiles: [] };
+      state.baselines = {
+        headHash: 'mock-commit-hash',
+        dirtyFiles: [],
+        rdtTouchedFiles: [],
+      };
     });
     (runner as any).loadProjectContext = vi.fn();
     (runner as any).scanRepository = vi.fn();
@@ -104,30 +125,55 @@ describe('Git Feature Branch Workflow', () => {
     expect(result.success).toBe(true);
 
     // Verify original branch was detected
-    expect(execSync).toHaveBeenCalledWith('git rev-parse --abbrev-ref HEAD', expect.any(Object));
+    expect(execSync).toHaveBeenCalledWith(
+      'git rev-parse --abbrev-ref HEAD',
+      expect.any(Object),
+    );
 
     // Verify feature branch was checked out
-    expect(execSync).toHaveBeenCalledWith(expect.stringContaining('git checkout -b "rdt/task-'), expect.any(Object));
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('git checkout -b "rdt/task-'),
+      expect.any(Object),
+    );
 
     // Verify files were staged and committed
-    expect(spawnSync).toHaveBeenCalledWith('git', ['add', 'src/index.ts'], expect.any(Object));
-    expect(spawnSync).toHaveBeenCalledWith('git', ['commit', '-m', expect.stringContaining('rdt: create feature')], expect.any(Object));
+    expect(spawnSync).toHaveBeenCalledWith(
+      'git',
+      ['add', 'src/index.ts'],
+      expect.any(Object),
+    );
+    expect(spawnSync).toHaveBeenCalledWith(
+      'git',
+      ['commit', '-m', expect.stringContaining('create feature')],
+      expect.any(Object),
+    );
 
     // Verify original branch was checked out back
-    expect(execSync).toHaveBeenCalledWith('git checkout "main-branch"', expect.any(Object));
+    expect(execSync).toHaveBeenCalledWith(
+      'git checkout "main-branch"',
+      expect.any(Object),
+    );
   });
 
   it('should checkout original branch and delete temporary feature branch on run failure', async () => {
     // Force editFiles to throw an error, causing a run failure
-    (runner as any).editFiles = vi.fn().mockRejectedValue(new Error('Editor crashed'));
+    (runner as any).editFiles = vi
+      .fn()
+      .mockRejectedValue(new Error('Editor crashed'));
 
     const result = await runner.run('failing task');
     expect(result.success).toBe(false);
 
     // Verify original branch was checked out back on failure
-    expect(execSync).toHaveBeenCalledWith('git checkout -f "main-branch"', expect.any(Object));
+    expect(execSync).toHaveBeenCalledWith(
+      'git checkout -f "main-branch"',
+      expect.any(Object),
+    );
 
     // Verify temporary feature branch was deleted on failure
-    expect(execSync).toHaveBeenCalledWith(expect.stringContaining('git branch -D "rdt/task-'), expect.any(Object));
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('git branch -D "rdt/task-'),
+      expect.any(Object),
+    );
   });
 });

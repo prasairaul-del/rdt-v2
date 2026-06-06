@@ -48,7 +48,10 @@ export function decideRetry(
   // Use cooldown from error if provided (e.g. 429 with Retry-After)
   // Otherwise use exponential backoff with jitter
   const baseDelay = error.cooldownMs ?? state.baseDelayMs;
-  const exponential = Math.min(baseDelay * Math.pow(2, state.attempt - 1), state.maxDelayMs);
+  const exponential = Math.min(
+    baseDelay * 2 ** (state.attempt - 1),
+    state.maxDelayMs,
+  );
   const jitter = Math.random() * 0.3 * exponential; // 0-30% jitter
   const delayMs = Math.round(exponential + jitter);
 

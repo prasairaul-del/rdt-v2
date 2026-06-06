@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { GoogleProvider } from '../../src/providers/google-provider';
 import { MockProvider } from '../../src/providers/mock-provider';
-import { createOpenAIProvider } from '../../src/providers/openai-compatible-provider';
 import { createOllamaProvider } from '../../src/providers/ollama-provider';
+import { createOpenAIProvider } from '../../src/providers/openai-compatible-provider';
 import { ProviderStateStore } from '../../src/storage/provider-state-store';
 
 // ── Mock Provider ────────────────────────────────────────────────
@@ -48,8 +49,14 @@ describe('MockProvider', () => {
 
   it('should record call history', async () => {
     const p = new MockProvider('test');
-    await p.complete({ model: 'm1', messages: [{ role: 'user', content: 'a' }] });
-    await p.complete({ model: 'm2', messages: [{ role: 'user', content: 'b' }] });
+    await p.complete({
+      model: 'm1',
+      messages: [{ role: 'user', content: 'a' }],
+    });
+    await p.complete({
+      model: 'm2',
+      messages: [{ role: 'user', content: 'b' }],
+    });
     expect(p.callHistory).toHaveLength(2);
     expect(p.callHistory[0].request.model).toBe('m1');
     expect(p.callHistory[1].request.model).toBe('m2');
@@ -65,7 +72,10 @@ describe('MockProvider', () => {
 
   it('should reset call history', async () => {
     const p = new MockProvider('test');
-    await p.complete({ model: 'm', messages: [{ role: 'user', content: 'x' }] });
+    await p.complete({
+      model: 'm',
+      messages: [{ role: 'user', content: 'x' }],
+    });
     expect(p.callHistory).toHaveLength(1);
     p.reset();
     expect(p.callHistory).toHaveLength(0);
@@ -76,38 +86,53 @@ describe('MockProvider', () => {
 
 describe('OpenAI-compatible provider', () => {
   it('should report unavailable when disabled', () => {
-    const p = createOpenAIProvider('test', {
-      id: 'test',
-      type: 'openai_compatible',
-      baseUrl: 'http://localhost:9999',
-      enabled: false,
-      models: [],
-    }, 'sk-test');
+    const p = createOpenAIProvider(
+      'test',
+      {
+        id: 'test',
+        type: 'openai_compatible',
+        baseUrl: 'http://localhost:9999',
+        enabled: false,
+        models: [],
+      },
+      'sk-test',
+    );
     expect(p.isAvailable()).toBe(false);
   });
 
   it('should report unavailable without API key', () => {
-    const p = createOpenAIProvider('test', {
-      id: 'test',
-      type: 'openai_compatible',
-      baseUrl: 'http://localhost:9999',
-      enabled: true,
-      models: [],
-    }, null);
+    const p = createOpenAIProvider(
+      'test',
+      {
+        id: 'test',
+        type: 'openai_compatible',
+        baseUrl: 'http://localhost:9999',
+        enabled: true,
+        models: [],
+      },
+      null,
+    );
     expect(p.isAvailable()).toBe(false);
   });
 
   it('should throw MISSING_API_KEY when no key and complete called', async () => {
-    const p = createOpenAIProvider('test', {
-      id: 'test',
-      type: 'openai_compatible',
-      baseUrl: 'http://localhost:9999',
-      enabled: true,
-      models: [],
-    }, null);
+    const p = createOpenAIProvider(
+      'test',
+      {
+        id: 'test',
+        type: 'openai_compatible',
+        baseUrl: 'http://localhost:9999',
+        enabled: true,
+        models: [],
+      },
+      null,
+    );
 
     try {
-      await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }] });
+      await p.complete({
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
       expect.fail('should have thrown');
     } catch (err) {
       const e = err as Error & { code: string };
@@ -117,16 +142,23 @@ describe('OpenAI-compatible provider', () => {
   });
 
   it('should handle network errors gracefully', async () => {
-    const p = createOpenAIProvider('test', {
-      id: 'test',
-      type: 'openai_compatible',
-      baseUrl: 'http://127.0.0.1:1',
-      enabled: true,
-      models: [],
-    }, 'sk-test');
+    const p = createOpenAIProvider(
+      'test',
+      {
+        id: 'test',
+        type: 'openai_compatible',
+        baseUrl: 'http://127.0.0.1:1',
+        enabled: true,
+        models: [],
+      },
+      'sk-test',
+    );
 
     try {
-      await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }] });
+      await p.complete({
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
       expect.fail('should have thrown');
     } catch (err) {
       const e = err as Error & { code: string };
@@ -171,7 +203,10 @@ describe('Ollama provider', () => {
     });
 
     try {
-      await p.complete({ model: 'llama3', messages: [{ role: 'user', content: 'hi' }] });
+      await p.complete({
+        model: 'llama3',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
       expect.fail('should have thrown');
     } catch (err) {
       const e = err as Error & { code: string };
@@ -186,7 +221,15 @@ describe('ProviderStateStore', () => {
   it('should register and retrieve model states', () => {
     const store = new ProviderStateStore();
     store.register([
-      { providerId: 'openrouter', modelId: 'free', enabled: true, quality: 'low', cost: 'free', supportsTools: true, supportsJson: true },
+      {
+        providerId: 'openrouter',
+        modelId: 'free',
+        enabled: true,
+        quality: 'low',
+        cost: 'free',
+        supportsTools: true,
+        supportsJson: true,
+      },
     ]);
 
     const state = store.get('openrouter', 'free');
@@ -198,8 +241,24 @@ describe('ProviderStateStore', () => {
   it('should return enabled states excluding cooldown', () => {
     const store = new ProviderStateStore();
     store.register([
-      { providerId: 'p1', modelId: 'm1', enabled: true, quality: 'low', cost: 'free', supportsTools: true, supportsJson: true },
-      { providerId: 'p2', modelId: 'm2', enabled: false, quality: 'low', cost: 'free', supportsTools: true, supportsJson: true },
+      {
+        providerId: 'p1',
+        modelId: 'm1',
+        enabled: true,
+        quality: 'low',
+        cost: 'free',
+        supportsTools: true,
+        supportsJson: true,
+      },
+      {
+        providerId: 'p2',
+        modelId: 'm2',
+        enabled: false,
+        quality: 'low',
+        cost: 'free',
+        supportsTools: true,
+        supportsJson: true,
+      },
     ]);
 
     const enabled = store.getEnabled();
@@ -210,7 +269,15 @@ describe('ProviderStateStore', () => {
   it('should exclude models in cooldown from getEnabled', () => {
     const store = new ProviderStateStore();
     store.register([
-      { providerId: 'p1', modelId: 'm1', enabled: true, quality: 'low', cost: 'free', supportsTools: true, supportsJson: true },
+      {
+        providerId: 'p1',
+        modelId: 'm1',
+        enabled: true,
+        quality: 'low',
+        cost: 'free',
+        supportsTools: true,
+        supportsJson: true,
+      },
     ]);
 
     // Put in cooldown
@@ -225,7 +292,17 @@ describe('ProviderStateStore', () => {
   it('should track request counts', () => {
     const store = new ProviderStateStore();
     store.register([
-      { providerId: 'p1', modelId: 'm1', enabled: true, rpmLimit: 10, dailyLimit: 100, quality: 'low', cost: 'free', supportsTools: true, supportsJson: true },
+      {
+        providerId: 'p1',
+        modelId: 'm1',
+        enabled: true,
+        rpmLimit: 10,
+        dailyLimit: 100,
+        quality: 'low',
+        cost: 'free',
+        supportsTools: true,
+        supportsJson: true,
+      },
     ]);
 
     store.recordSuccess('p1', 'm1');
@@ -239,7 +316,15 @@ describe('ProviderStateStore', () => {
   it('should record error with cooldown', () => {
     const store = new ProviderStateStore();
     store.register([
-      { providerId: 'p1', modelId: 'm1', enabled: true, quality: 'low', cost: 'free', supportsTools: true, supportsJson: true },
+      {
+        providerId: 'p1',
+        modelId: 'm1',
+        enabled: true,
+        quality: 'low',
+        cost: 'free',
+        supportsTools: true,
+        supportsJson: true,
+      },
     ]);
 
     store.recordError('p1', 'm1', 'RATE_LIMITED', 30_000);
@@ -252,7 +337,15 @@ describe('ProviderStateStore', () => {
   it('should clear cooldown on success', () => {
     const store = new ProviderStateStore();
     store.register([
-      { providerId: 'p1', modelId: 'm1', enabled: true, quality: 'low', cost: 'free', supportsTools: true, supportsJson: true },
+      {
+        providerId: 'p1',
+        modelId: 'm1',
+        enabled: true,
+        quality: 'low',
+        cost: 'free',
+        supportsTools: true,
+        supportsJson: true,
+      },
     ]);
 
     store.recordError('p1', 'm1', 'RATE_LIMITED', 60_000);
@@ -261,5 +354,39 @@ describe('ProviderStateStore', () => {
     const state = store.get('p1', 'm1');
     expect(state?.cooldownUntil).toBeUndefined();
     expect(state?.lastErrorCode).toBeUndefined();
+  });
+});
+
+// ── Google Provider ──────────────────────────────────────────────
+
+describe('Google provider', () => {
+  it('should report unavailable when disabled', () => {
+    const p = new GoogleProvider(
+      'google',
+      { apiKey: null },
+      {
+        id: 'google',
+        type: 'google',
+        baseUrl: '',
+        enabled: false,
+        models: [],
+      },
+    );
+    expect(p.isAvailable()).toBe(false);
+  });
+
+  it('should report available when api key is present', () => {
+    const p = new GoogleProvider(
+      'google',
+      { apiKey: 'AIzaSy' },
+      {
+        id: 'google',
+        type: 'google',
+        baseUrl: '',
+        enabled: true,
+        models: [],
+      },
+    );
+    expect(p.isAvailable()).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import type {
-  Provider,
   CompletionRequest,
   CompletionResponse,
+  Provider,
   ProviderConfigForClient,
   ProviderErrorDetails,
 } from './types';
@@ -23,14 +23,20 @@ interface OllamaErrorBody {
   error?: string;
 }
 
-function buildOllamaRequest(request: CompletionRequest): Record<string, unknown> {
+function buildOllamaRequest(
+  request: CompletionRequest,
+): Record<string, unknown> {
   return {
     model: request.model,
     messages: request.messages,
     stream: false,
     options: {
-      ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
-      ...(request.max_tokens !== undefined ? { num_predict: request.max_tokens } : {}),
+      ...(request.temperature !== undefined
+        ? { temperature: request.temperature }
+        : {}),
+      ...(request.max_tokens !== undefined
+        ? { num_predict: request.max_tokens }
+        : {}),
     },
   };
 }
@@ -38,7 +44,10 @@ function buildOllamaRequest(request: CompletionRequest): Record<string, unknown>
 export function createOllamaProvider(
   config: ProviderConfigForClient,
 ): Provider {
-  const baseUrl = (config.baseUrl || 'http://localhost:11434').replace(/\/+$/, '');
+  const baseUrl = (config.baseUrl || 'http://localhost:11434').replace(
+    /\/+$/,
+    '',
+  );
 
   const provider: Provider = {
     name: config.id || 'ollama',
@@ -60,9 +69,14 @@ export function createOllamaProvider(
           signal: AbortSignal.timeout(120_000),
         });
       } catch (err) {
-        const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+        const isTimeout =
+          err instanceof DOMException && err.name === 'TimeoutError';
         throw Object.assign(
-          new Error(isTimeout ? 'Ollama request timed out after 120s' : `Ollama network error: ${(err as Error).message}`),
+          new Error(
+            isTimeout
+              ? 'Ollama request timed out after 120s'
+              : `Ollama network error: ${(err as Error).message}`,
+          ),
           {
             code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR',
             retryable: !isTimeout,
@@ -80,26 +94,30 @@ export function createOllamaProvider(
           // ignore
         }
 
-        const msg = parsed?.error ?? `HTTP ${response.status}: Ollama request failed`;
+        const msg =
+          parsed?.error ?? `HTTP ${response.status}: Ollama request failed`;
 
         if (response.status === 404) {
           throw Object.assign(
-            new Error(`Model "${request.model}" not found. Pull it first: ollama pull ${request.model}`),
-            { code: 'MODEL_NOT_FOUND', retryable: false, status: 404 } as ProviderErrorDetails,
+            new Error(
+              `Model "${request.model}" not found. Pull it first: ollama pull ${request.model}`,
+            ),
+            {
+              code: 'MODEL_NOT_FOUND',
+              retryable: false,
+              status: 404,
+            } as ProviderErrorDetails,
           );
         }
 
-        throw Object.assign(
-          new Error(msg),
-          {
-            code: response.status >= 500 ? 'SERVER_ERROR' : 'REQUEST_FAILED',
-            retryable: response.status >= 500,
-            status: response.status,
-          } as ProviderErrorDetails,
-        );
+        throw Object.assign(new Error(msg), {
+          code: response.status >= 500 ? 'SERVER_ERROR' : 'REQUEST_FAILED',
+          retryable: response.status >= 500,
+          status: response.status,
+        } as ProviderErrorDetails);
       }
 
-      const json = await response.json() as OllamaGenerateResponse;
+      const json = (await response.json()) as OllamaGenerateResponse;
 
       if (!json.message?.content && json.done) {
         return {
@@ -117,7 +135,10 @@ export function createOllamaProvider(
         finish_reason: 'stop',
       };
 
-      if (json.prompt_eval_count !== undefined || json.eval_count !== undefined) {
+      if (
+        json.prompt_eval_count !== undefined ||
+        json.eval_count !== undefined
+      ) {
         result.usage = {
           prompt_tokens: json.prompt_eval_count ?? 0,
           completion_tokens: json.eval_count ?? 0,
@@ -142,10 +163,18 @@ export function createOllamaProvider(
           signal: AbortSignal.timeout(30_000),
         });
       } catch (err) {
-        const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+        const isTimeout =
+          err instanceof DOMException && err.name === 'TimeoutError';
         throw Object.assign(
-          new Error(isTimeout ? 'Ollama embedding timed out after 30s' : `Ollama embedding network error: ${(err as Error).message}`),
-          { code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR', retryable: !isTimeout }
+          new Error(
+            isTimeout
+              ? 'Ollama embedding timed out after 30s'
+              : `Ollama embedding network error: ${(err as Error).message}`,
+          ),
+          {
+            code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR',
+            retryable: !isTimeout,
+          },
         );
       }
 
@@ -163,7 +192,9 @@ export function createOllamaProvider(
             signal: AbortSignal.timeout(30_000),
           });
           if (altResponse.ok) {
-            const json = await altResponse.json() as { embeddings?: number[][] };
+            const json = (await altResponse.json()) as {
+              embeddings?: number[][];
+            };
             if (json.embeddings?.[0]) {
               return json.embeddings[0];
             }
@@ -174,17 +205,23 @@ export function createOllamaProvider(
 
         const bodyText = await response.text().catch(() => '');
         throw Object.assign(
-          new Error(`Ollama embedding failed with status ${response.status}: ${bodyText}`),
-          { code: 'EMBEDDING_FAILED', retryable: response.status >= 500, status: response.status }
+          new Error(
+            `Ollama embedding failed with status ${response.status}: ${bodyText}`,
+          ),
+          {
+            code: 'EMBEDDING_FAILED',
+            retryable: response.status >= 500,
+            status: response.status,
+          },
         );
       }
 
-      const json = await response.json() as { embedding?: number[] };
+      const json = (await response.json()) as { embedding?: number[] };
       const embedding = json.embedding;
       if (!embedding) {
         throw Object.assign(
           new Error('No embedding returned from Ollama provider'),
-          { code: 'EMPTY_EMBEDDING', retryable: true }
+          { code: 'EMPTY_EMBEDDING', retryable: true },
         );
       }
 

@@ -29,21 +29,21 @@ export type TaskStatus =
 
 /** Transitions that are valid from each state. */
 const TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  created:              ['capturing_baseline', 'failed'],
-  capturing_baseline:   ['loading_context', 'failed'],
-  loading_context:      ['scanning_repo', 'failed'],
-  scanning_repo:        ['selecting_files', 'failed'],
-  selecting_files:      ['planning', 'failed'],
-  planning:             ['editing', 'failed'],
-  editing:              ['reviewing', 'failed', 'done'],
-  reviewing:            ['fixing', 'finalizing', 'failed'],
-  fixing:               ['editing', 'failed', 'done'],
-  finalizing:           ['done', 'failed'],
-  done:                 [],
-  failed:               ['rolling_back', 'failed_clean', 'failed_dirty'],
-  rolling_back:         ['failed_clean', 'failed_dirty'],
-  failed_clean:         [],
-  failed_dirty:         [],
+  created: ['capturing_baseline', 'failed'],
+  capturing_baseline: ['loading_context', 'failed'],
+  loading_context: ['scanning_repo', 'failed'],
+  scanning_repo: ['selecting_files', 'failed'],
+  selecting_files: ['planning', 'failed'],
+  planning: ['editing', 'failed'],
+  editing: ['reviewing', 'failed', 'done'],
+  reviewing: ['fixing', 'finalizing', 'failed'],
+  fixing: ['editing', 'failed', 'done'],
+  finalizing: ['done', 'failed'],
+  done: [],
+  failed: ['rolling_back', 'failed_clean', 'failed_dirty'],
+  rolling_back: ['failed_clean', 'failed_dirty'],
+  failed_clean: [],
+  failed_dirty: [],
 };
 
 /** Error severity for determining failure path. */
@@ -97,11 +97,20 @@ export interface TaskState {
 
   // Accumulated results
   selectedFilesCount?: number;
-  selectedFiles?: Array<{ path: string; reason: string; priority: 'high' | 'medium' | 'low' }>;
+  selectedFiles?: Array<{
+    path: string;
+    reason: string;
+    priority: 'high' | 'medium' | 'low';
+  }>;
   planSummary?: string;
   plan?: {
     summary: string;
-    steps: Array<{ id: string; description: string; targetFiles: string[]; risk: 'low' | 'medium' | 'high' }>;
+    steps: Array<{
+      id: string;
+      description: string;
+      targetFiles: string[];
+      risk: 'low' | 'medium' | 'high';
+    }>;
     testPlan: string[];
     risks: string[];
   };
@@ -122,10 +131,17 @@ export interface TaskState {
   }>;
 }
 
-export function createTaskState(request: string, maxEditPasses = 3, rollbackOnFailed = true): TaskState {
+export function createTaskState(
+  request: string,
+  maxEditPasses = 3,
+  rollbackOnFailed = true,
+  taskId?: string,
+): TaskState {
   const now = new Date().toISOString();
   return {
-    id: `task_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    id:
+      taskId ??
+      `task_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     request,
     status: 'created',
     createdAt: now,
@@ -148,12 +164,17 @@ export function transitionState(state: TaskState, to: TaskStatus): void {
   if (!allowed.includes(to)) {
     throw new Error(
       `Invalid state transition: ${state.status} -> ${to}. ` +
-      `Allowed transitions from ${state.status}: [${allowed.join(', ')}]`,
+        `Allowed transitions from ${state.status}: [${allowed.join(', ')}]`,
     );
   }
 
   // Track timing
-  if (to === 'failed' || to === 'failed_clean' || to === 'failed_dirty' || to === 'done') {
+  if (
+    to === 'failed' ||
+    to === 'failed_clean' ||
+    to === 'failed_dirty' ||
+    to === 'done'
+  ) {
     state.finishedAt = new Date().toISOString();
   }
 
@@ -181,7 +202,12 @@ export function addTaskError(
   state.updatedAt = new Date().toISOString();
 
   // Auto-transition for fatal errors
-  if (severity === 'fatal' && state.status !== 'failed' && state.status !== 'failed_clean' && state.status !== 'failed_dirty') {
+  if (
+    severity === 'fatal' &&
+    state.status !== 'failed' &&
+    state.status !== 'failed_clean' &&
+    state.status !== 'failed_dirty'
+  ) {
     transitionState(state, 'failed');
   }
 }

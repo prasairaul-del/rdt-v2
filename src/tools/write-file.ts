@@ -1,12 +1,14 @@
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { errorResult, successResult } from '../core/result';
 import type { Tool } from './types';
-import { successResult, errorResult } from '../core/result';
 
 export interface WriteFileInput {
   path: string;
   content: string;
   allowOverwrite?: boolean;
+  /** Override working directory for path resolution (avoids process.cwd() dependency) */
+  cwd?: string;
 }
 
 export interface WriteFileOutput {
@@ -17,27 +19,39 @@ export interface WriteFileOutput {
 
 export const writeFileTool: Tool<WriteFileInput, WriteFileOutput> = {
   name: 'write_file',
-  description: 'Writes a new file. Only allowed for new files or explicitly approved overwrites.',
+  description:
+    'Writes a new file. Only allowed for new files or explicitly approved overwrites.',
   inputSchema: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'Relative path to the file' },
       content: { type: 'string', description: 'File content' },
-      allowOverwrite: { type: 'boolean', description: 'Allow overwriting existing file (default: false)' },
+      allowOverwrite: {
+        type: 'boolean',
+        description: 'Allow overwriting existing file (default: false)',
+      },
+      cwd: {
+        type: 'string',
+        description: 'Working directory for path resolution',
+      },
     },
     required: ['path', 'content'],
   },
 
   async execute(input: WriteFileInput) {
     try {
-      const absPath = resolve(process.cwd(), input.path);
+      const base = input.cwd ?? process.cwd();
+      const absPath = resolve(base, input.path);
       const alreadyExists = existsSync(absPath);
 
       if (alreadyExists && !input.allowOverwrite) {
         return errorResult(
           'VALIDATION_ERROR',
           `File '${input.path}' already exists. Use allowOverwrite: true or apply_patch instead.`,
-          ['Set allowOverwrite: true to overwrite', 'Use apply_patch for surgical edits'],
+          [
+            'Set allowOverwrite: true to overwrite',
+            'Use apply_patch for surgical edits',
+          ],
         );
       }
 
@@ -55,9 +69,15 @@ export const writeFileTool: Tool<WriteFileInput, WriteFileOutput> = {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('EACCES') || message.includes('EPERM')) {
-        return errorResult('PERMISSION_DENIED', `Cannot write '${input.path}': ${message}`);
+        return errorResult(
+          'PERMISSION_DENIED',
+          `Cannot write '${input.path}': ${message}`,
+        );
       }
-      return errorResult('INTERNAL_ERROR', `Failed to write '${input.path}': ${message}`);
+      return errorResult(
+        'INTERNAL_ERROR',
+        `Failed to write '${input.path}': ${message}`,
+      );
     }
   },
 };
