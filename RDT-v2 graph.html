@@ -1,0 +1,530 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RDT v2 Obsidian-Style Graph</title>
+<style>
+/* Tooltip styling */
+#tooltip {
+  position: fixed;
+  pointer-events: none;
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  font-size: 13px;
+  max-width: 300px;
+  z-index: 20;
+  display: none;
+}
+
+  :root {
+    --bg: #0b0b12;
+    --panel: rgba(20, 20, 34, 0.82);
+    --panel-border: rgba(255,255,255,0.10);
+    --text: #ede9fe;
+    --muted: #a7a1be;
+    --accent: #8b5cf6;
+    --edge: rgba(167, 139, 250, 0.35);
+    --edge-hot: rgba(255, 255, 255, 0.95);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background: radial-gradient(circle at center, #161628 0%, var(--bg) 70%); color:var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; overflow:hidden; }
+  canvas { display:block; width:100vw; height:100vh; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  .topbar {
+    position: fixed; top: 14px; left: 14px; right: 14px;
+    display:flex; align-items:center; gap:12px; z-index:10; pointer-events:none;
+  }
+  .title, .controls, .legend, .details {
+    background: var(--panel);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-border);
+    box-shadow: 0 16px 60px rgba(0,0,0,0.35);
+  }
+  .title {
+    padding: 12px 16px; border-radius: 14px; min-width: 285px;
+    pointer-events:auto;
+  }
+  .title h1 { margin:0; font-size:16px; letter-spacing:0.3px; }
+  .title p { margin:4px 0 0; color:var(--muted); font-size:12px; }
+  .controls {
+    flex:1; display:flex; align-items:center; gap:8px; padding:10px; border-radius:14px;
+    pointer-events:auto; min-width: 0;
+  }
+  input, button, select {
+    border:1px solid rgba(255,255,255,0.12);
+    background:rgba(255,255,255,0.06);
+    color:var(--text); border-radius:10px; padding:9px 10px;
+    outline:none; font-size:13px;
+  }
+  input { flex:1; min-width:140px; }
+  button { cursor:pointer; white-space:nowrap; }
+  button:hover { background:rgba(139,92,246,0.23); border-color:rgba(139,92,246,0.45); }
+  select { max-width:130px; }
+  .details {
+    position:fixed; top:86px; right:14px; width:350px; max-height: calc(100vh - 108px);
+    overflow:auto; border-radius:18px; padding:16px; z-index:9;
+  }
+  .details h2 { margin:0 0 4px; font-size:20px; }
+  .details .chip { display:inline-block; padding:4px 8px; border-radius:999px; font-size:11px; margin:4px 4px 10px 0; background:rgba(139,92,246,0.20); border:1px solid rgba(139,92,246,0.30); color:#ddd6fe; }
+  .details p { color:#d8d2ea; line-height:1.48; font-size:13px; }
+  .details ul { padding-left:18px; margin:8px 0 0; color:#c8c1dc; font-size:13px; }
+  .legend {
+    position:fixed; left:14px; bottom:14px; width:260px; border-radius:18px; padding:14px; z-index:9;
+  }
+  .legend h3 { margin:0 0 10px; font-size:13px; color:#f5f3ff; }
+  .legend-row { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; color:var(--muted); margin:7px 0; }
+  .legend-left { display:flex; align-items:center; gap:8px; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .stats { margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); font-size:12px; color:var(--muted); }
+  .hint {
+    position:fixed; left:50%; transform:translateX(-50%); bottom:18px;
+    background:rgba(0,0,0,0.32); border:1px solid rgba(255,255,255,0.08);
+    padding:9px 12px; border-radius:999px; color:#b9b0d1; font-size:12px; z-index:8;
+  }
+  .empty { color:var(--muted); font-size:13px; }
+  @media (max-width: 900px) {
+    .topbar { flex-direction:column; align-items:stretch; }
+    .details { width:auto; left:14px; right:14px; top:160px; max-height:34vh; }
+    .legend { display:none; }
+    .hint { display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="tooltip"></div>
+
+<canvas id="graph"></canvas>
+<div class="topbar">
+  <div class="title">
+    <h1>RDT v2 Obsidian-Style Graph</h1>
+    <p>Nodes = components. Lines = dependencies / data flow.</p>
+  </div>
+  <div class="controls">
+      <input id="search" placeholder="Search nodes, e.g. Provider Router, Editor Agent..."/>
+      <select id="groupFilter"><option value="all">All groups</option></select>
+      <button id="fitBtn">Fit</button>
+      <button id="resetBtn">Reset</button>
+      <button id="zoomInBtn">+</button>
+      <button id="zoomOutBtn">-</button>
+      <button id="localBtn">Local: off</button>
+    </div>
+</div>
+<div class="details" id="details">
+  <h2>Global Graph</h2>
+  <span class="chip">Obsidian-style</span>
+  <span class="chip">MVP architecture</span>
+  <p>Hover a node to highlight direct connections. Click a node to lock its local graph. Drag nodes, scroll to zoom, and drag empty space to pan.</p>
+  <p class="empty">Start with <strong>RDT v2</strong>, <strong>Task Runner</strong>, <strong>Provider Router</strong>, or <strong>Tool System</strong>.</p>
+</div>
+<div class="legend" id="legend"><h3>Groups</h3></div>
+<div class="hint">Hover = highlight · Click = local graph · Scroll = zoom · Drag = move</div>
+<script>
+const GRAPH = {"nodes": [{"id": "rdt-v2", "label": "RDT v2", "group": "Core", "phase": "MVP", "description": "Terminal-first AI coding assistant rebuilt cleanly around safe repository editing, tests, diffs, provider routing, and honest final reports."}, {"id": "terminal-cli", "label": "Terminal CLI", "group": "Interface", "phase": "MVP", "description": "The primary MVP interface exposing rdt init, rdt status, and natural-language coding task execution."}, {"id": "rdt-init", "label": "rdt init", "group": "Command", "phase": "Phase 1", "description": "Repository setup command that creates local configuration, instructions, project knowledge, task folders, and detected metadata."}, {"id": "rdt-status", "label": "rdt status", "group": "Command", "phase": "Phase 1", "description": "Health command that reports providers, API keys, cooldowns, detected project type, test commands, and recent task status."}, {"id": "config-yaml", "label": ".rdt/config.yaml", "group": "Config", "phase": "MVP", "description": "Local project configuration for providers, model policies, runtime limits, test commands, shell permissions, and agent tool access."}, {"id": "agents-md", "label": "AGENTS.md", "group": "Context", "phase": "MVP", "description": "Repository instructions file containing setup commands, coding rules, important paths, style notes, and agent safety boundaries."}, {"id": "knowledge-md", "label": "knowledge.md", "group": "Context", "phase": "MVP", "description": "Human-readable project memory for stable decisions, architecture notes, known issues, and constraints without vector memory."}, {"id": "task-runner", "label": "Task Runner", "group": "Core", "phase": "MVP", "description": "Deterministic workflow engine that moves each coding task through context loading, scanning, file selection, planning, editing, review, and reporting."}, {"id": "task-state-machine", "label": "Task State Machine", "group": "Core", "phase": "MVP", "description": "Explicit lifecycle controlling every request from CREATED to DONE or FAILED through known intermediate states."}, {"id": "project-context", "label": "Project Context", "group": "Context", "phase": "MVP", "description": "Compact task-ready summary of repository structure, instructions, detected commands, relevant files, and stable project knowledge."}, {"id": "instruction-loader", "label": "Instruction Loader", "group": "Context", "phase": "MVP", "description": "Component that reads AGENTS.md, knowledge.md, README notes, and configuration before agents start acting."}, {"id": "repo-scanner", "label": "Repository Scanner", "group": "Context", "phase": "MVP", "description": "Component that builds a safe repo map while ignoring generated folders, binaries, dependencies, build outputs, and irrelevant large files."}, {"id": "project-detector", "label": "Project Detector", "group": "Context", "phase": "Phase 1", "description": "Component that identifies language, package manager, framework hints, source folders, test commands, and lint commands."}, {"id": "file-picker-agent", "label": "File Picker Agent", "group": "Agent", "phase": "MVP", "description": "Specialized agent that chooses the smallest useful set of files for the user’s coding task."}, {"id": "planner-agent", "label": "Planner Agent", "group": "Agent", "phase": "MVP", "description": "Specialized agent that creates a minimal implementation plan, target files, risks, and test strategy before editing."}, {"id": "editor-agent", "label": "Editor Agent", "group": "Agent", "phase": "MVP", "description": "Specialized agent that applies safe patches according to the approved plan and inspects resulting diffs."}, {"id": "reviewer-agent", "label": "Reviewer Agent", "group": "Agent", "phase": "MVP", "description": "Specialized agent that reviews diffs, runs tests or checks, identifies failures, and decides whether another edit pass is needed."}, {"id": "provider-router", "label": "Provider Router", "group": "Provider", "phase": "MVP", "description": "Routing layer that selects compatible models while tracking quotas, rate limits, cooldowns, retries, capabilities, and fallbacks."}, {"id": "model-policies", "label": "Model Policies", "group": "Provider", "phase": "MVP", "description": "Policy rules that map agent jobs to cheap_fast, smart_reasoning, or code_strong model preferences."}, {"id": "provider-state-store", "label": "Provider State Store", "group": "Storage", "phase": "MVP", "description": "Persistent record of provider quota usage, last errors, cooldowns, capability observations, and routing health."}, {"id": "openrouter-provider", "label": "OpenRouter Provider", "group": "Provider", "phase": "MVP", "description": "OpenAI-compatible adapter for OpenRouter model calls while respecting legitimate free-tier and paid-account limits."}, {"id": "openai-compatible-provider", "label": "OpenAI-Compatible Provider", "group": "Provider", "phase": "MVP", "description": "Generic adapter for providers exposing OpenAI-style chat completion APIs, including OpenRouter-like and Groq-like endpoints."}, {"id": "ollama-provider", "label": "Ollama Provider", "group": "Provider", "phase": "Post-MVP", "description": "Optional local model adapter for reducing remote quota pressure and allowing offline or low-risk model calls."}, {"id": "mock-provider", "label": "Mock Provider", "group": "Provider", "phase": "MVP", "description": "Deterministic provider for testing agent contracts, task transitions, and routing without real API calls."}, {"id": "tool-system", "label": "Tool System", "group": "Tool", "phase": "MVP", "description": "Controlled capability layer that agents must use for files, patches, shell commands, tests, and git diffs."}, {"id": "tool-result", "label": "ToolResult Contract", "group": "Tool", "phase": "MVP", "description": "Standard result shape for all tools with success status, data, error type, error message, and recovery suggestions."}, {"id": "file-tools", "label": "File Tools", "group": "Tool", "phase": "MVP", "description": "Tools for listing, reading, searching, writing approved files, and applying structured patches safely."}, {"id": "shell-test-tools", "label": "Shell and Test Tools", "group": "Tool", "phase": "MVP", "description": "Tools for running safe shell commands, detected tests, lint checks, and validation commands with timeouts."}, {"id": "shell-safety", "label": "Shell Safety Rules", "group": "Safety", "phase": "MVP", "description": "Safety policy blocking destructive shell commands, risky pipes, forceful git cleanup, and unapproved system mutations."}, {"id": "git-diff", "label": "Git Diff", "group": "Tool", "phase": "MVP", "description": "Authoritative view of actual repository changes used by editor, reviewer, logs, and final reporting."}, {"id": "apply-patch", "label": "Apply Patch", "group": "Tool", "phase": "MVP", "description": "Preferred editing tool that applies structured diffs instead of blind full-file rewrites."}, {"id": "sqlite-storage", "label": "SQLite Storage", "group": "Storage", "phase": "MVP", "description": "Local persistence layer for tasks, provider state, project metadata, cooldowns, logs, and debugging traces."}, {"id": "task-log-store", "label": "Task Log Store", "group": "Storage", "phase": "MVP", "description": "Persistent log of user request, selected files, plan, edits, tests, provider usage, errors, and final result."}, {"id": "final-report", "label": "Final Report", "group": "Output", "phase": "MVP", "description": "User-facing summary of work attempted, changes made, tests run, providers used, failures found, and recovery steps."}, {"id": "fixture-tests", "label": "Fixture Tests", "group": "Quality", "phase": "MVP", "description": "Controlled sample repositories proving RDT can detect projects, patch bugs, run checks, and report results deterministically."}, {"id": "smoke-tests", "label": "Smoke Tests", "group": "Quality", "phase": "MVP", "description": "Manual real-repo checks confirming rdt init, rdt status, and a simple coding task work end to end."}, {"id": "custom-agents", "label": "Custom Agents", "group": "Future", "phase": "Post-MVP", "description": "Future .agents definitions for user-created roles after the MVP workflow becomes stable."}, {"id": "tui", "label": "TUI", "group": "Future", "phase": "Post-MVP", "description": "Future terminal interface for visualizing steps, diffs, selected files, provider state, and logs."}, {"id": "vector-memory", "label": "Vector Memory", "group": "Future", "phase": "Post-MVP", "description": "Future retrieval memory layer intentionally excluded from MVP until markdown knowledge becomes insufficient."}, {"id": "swarm", "label": "Swarm", "group": "Future", "phase": "Post-MVP", "description": "Future bounded parallel agent mode intentionally delayed until the single task workflow is reliable."}, {"id": "dashboard", "label": "Dashboard", "group": "Future", "phase": "Post-MVP", "description": "Future web UI that must not be built until the terminal workflow is proven."}, {"id": "context-budget", "label": "Context Budget", "group": "Config", "phase": "MVP", "description": "Per-agent token budget rules that prevent large repositories or large files from overflowing the selected model context window."}, {"id": "token-counter", "label": "Token Counter", "group": "Context", "phase": "MVP", "description": "Counts or estimates prompt size before every model call so the system reserves output space and avoids context overflow."}, {"id": "context-truncator", "label": "Context Truncator", "group": "Context", "phase": "MVP", "description": "Reduces oversized context safely by dropping low-priority repo map sections, summarizing large files, and preserving critical instructions, diffs, and test output."}, {"id": "baseline-snapshot", "label": "Baseline Snapshot", "group": "Safety", "phase": "MVP", "description": "Captured before the first edit: current HEAD, git status, pre-existing dirty files, and files RDT is allowed to modify."}, {"id": "rollback-manager", "label": "Rollback Manager", "group": "Safety", "phase": "MVP", "description": "Failure recovery component that restores only RDT-touched files after a failed task while preserving user changes that existed before the task began."}, {"id": "git-status-snapshot", "label": "git_status_snapshot", "group": "Tool", "phase": "MVP", "description": "Tool that captures baseline and final dirty state for rollback, failure reporting, and repository safety checks."}, {"id": "git-restore-touched", "label": "git_restore_touched", "group": "Tool", "phase": "MVP", "description": "Tool that restores only files changed by RDT during the task, avoiding whole-repo reset and protecting pre-existing user changes."}, {"id": "save-failed-patch", "label": "save_failed_patch", "group": "Tool", "phase": "MVP", "description": "Tool that saves the failed diff to .rdt/tasks/<task-id>/failed.patch before rollback so work can be inspected or manually recovered."}, {"id": "failed-clean", "label": "FAILED_CLEAN", "group": "Output", "phase": "MVP", "description": "Failure state meaning the task failed but rollback succeeded and RDT-touched paths were restored cleanly."}, {"id": "failed-dirty", "label": "FAILED_DIRTY", "group": "Output", "phase": "MVP", "description": "Failure state meaning the task failed and the repository remains dirty, so the final report must list dirty files and manual recovery commands."}, {"id": "reviewer-smart-policy", "label": "Reviewer = smart_reasoning", "group": "Provider", "phase": "MVP", "description": "Hard rule that the Reviewer Agent must use smart_reasoning or stronger, not cheap_fast, because it approves safety, tests, and final correctness."}], "links": [{"source": "rdt-v2", "target": "terminal-cli", "label": "primary interface"}, {"source": "terminal-cli", "target": "rdt-init", "label": "setup command"}, {"source": "terminal-cli", "target": "rdt-status", "label": "health command"}, {"source": "terminal-cli", "target": "task-runner", "label": "runs task"}, {"source": "rdt-init", "target": "config-yaml", "label": "creates"}, {"source": "rdt-init", "target": "agents-md", "label": "creates"}, {"source": "rdt-init", "target": "knowledge-md", "label": "creates"}, {"source": "rdt-status", "target": "provider-router", "label": "checks providers"}, {"source": "rdt-status", "target": "project-detector", "label": "checks project"}, {"source": "task-runner", "target": "task-state-machine", "label": "controlled by"}, {"source": "task-runner", "target": "instruction-loader", "label": "loads instructions"}, {"source": "task-runner", "target": "repo-scanner", "label": "scans repo"}, {"source": "task-runner", "target": "file-picker-agent", "label": "step 1"}, {"source": "task-runner", "target": "planner-agent", "label": "step 2"}, {"source": "task-runner", "target": "editor-agent", "label": "step 3"}, {"source": "task-runner", "target": "reviewer-agent", "label": "step 4"}, {"source": "task-runner", "target": "provider-router", "label": "all model calls"}, {"source": "task-runner", "target": "tool-system", "label": "tool access"}, {"source": "task-runner", "target": "task-log-store", "label": "logs task"}, {"source": "instruction-loader", "target": "agents-md", "label": "reads"}, {"source": "instruction-loader", "target": "knowledge-md", "label": "reads"}, {"source": "instruction-loader", "target": "project-context", "label": "builds context"}, {"source": "repo-scanner", "target": "project-detector", "label": "uses"}, {"source": "repo-scanner", "target": "project-context", "label": "adds repo map"}, {"source": "config-yaml", "target": "provider-router", "label": "configures"}, {"source": "config-yaml", "target": "task-runner", "label": "sets limits"}, {"source": "project-context", "target": "file-picker-agent", "label": "guides"}, {"source": "project-context", "target": "planner-agent", "label": "guides"}, {"source": "project-context", "target": "editor-agent", "label": "constrains"}, {"source": "project-context", "target": "reviewer-agent", "label": "guides"}, {"source": "file-picker-agent", "target": "file-tools", "label": "uses"}, {"source": "file-picker-agent", "target": "planner-agent", "label": "passes selected files"}, {"source": "planner-agent", "target": "editor-agent", "label": "passes plan"}, {"source": "editor-agent", "target": "apply-patch", "label": "uses"}, {"source": "editor-agent", "target": "git-diff", "label": "inspects"}, {"source": "editor-agent", "target": "reviewer-agent", "label": "passes diff"}, {"source": "reviewer-agent", "target": "git-diff", "label": "reviews"}, {"source": "reviewer-agent", "target": "shell-test-tools", "label": "runs checks"}, {"source": "reviewer-agent", "target": "editor-agent", "label": "fix loop"}, {"source": "reviewer-agent", "target": "final-report", "label": "approves/reports"}, {"source": "provider-router", "target": "model-policies", "label": "uses"}, {"source": "provider-router", "target": "provider-state-store", "label": "tracks"}, {"source": "provider-router", "target": "openrouter-provider", "label": "routes"}, {"source": "provider-router", "target": "openai-compatible-provider", "label": "routes"}, {"source": "provider-router", "target": "ollama-provider", "label": "optional local"}, {"source": "provider-router", "target": "mock-provider", "label": "testing"}, {"source": "provider-state-store", "target": "sqlite-storage", "label": "persists"}, {"source": "task-log-store", "target": "sqlite-storage", "label": "persists"}, {"source": "tool-system", "target": "tool-result", "label": "standardizes"}, {"source": "tool-system", "target": "file-tools", "label": "contains"}, {"source": "tool-system", "target": "shell-test-tools", "label": "contains"}, {"source": "shell-test-tools", "target": "shell-safety", "label": "blocked by"}, {"source": "file-tools", "target": "apply-patch", "label": "contains"}, {"source": "apply-patch", "target": "git-diff", "label": "produces"}, {"source": "final-report", "target": "task-log-store", "label": "summarizes"}, {"source": "fixture-tests", "target": "task-runner", "label": "tests"}, {"source": "fixture-tests", "target": "mock-provider", "label": "uses"}, {"source": "smoke-tests", "target": "terminal-cli", "label": "verifies"}, {"source": "custom-agents", "target": "tool-system", "label": "future uses"}, {"source": "custom-agents", "target": "model-policies", "label": "future uses"}, {"source": "tui", "target": "task-log-store", "label": "future reads"}, {"source": "vector-memory", "target": "knowledge-md", "label": "future extends"}, {"source": "swarm", "target": "task-runner", "label": "future extends"}, {"source": "dashboard", "target": "task-log-store", "label": "future reads"}, {"source": "config-yaml", "target": "context-budget", "label": "defines limits"}, {"source": "context-budget", "target": "token-counter", "label": "requires"}, {"source": "context-budget", "target": "context-truncator", "label": "controls"}, {"source": "token-counter", "target": "provider-router", "label": "checks model window"}, {"source": "context-truncator", "target": "project-context", "label": "shrinks safely"}, {"source": "context-truncator", "target": "file-picker-agent", "label": "limits prompt"}, {"source": "context-truncator", "target": "planner-agent", "label": "limits prompt"}, {"source": "context-truncator", "target": "editor-agent", "label": "limits prompt"}, {"source": "context-truncator", "target": "reviewer-agent", "label": "preserves diff/tests"}, {"source": "task-runner", "target": "baseline-snapshot", "label": "captures before edits"}, {"source": "baseline-snapshot", "target": "git-status-snapshot", "label": "created by"}, {"source": "baseline-snapshot", "target": "rollback-manager", "label": "protects user changes"}, {"source": "editor-agent", "target": "baseline-snapshot", "label": "must respect"}, {"source": "task-state-machine", "target": "rollback-manager", "label": "failure path"}, {"source": "rollback-manager", "target": "git-restore-touched", "label": "uses"}, {"source": "rollback-manager", "target": "save-failed-patch", "label": "saves failed diff"}, {"source": "rollback-manager", "target": "failed-clean", "label": "success state"}, {"source": "rollback-manager", "target": "failed-dirty", "label": "incomplete state"}, {"source": "git-restore-touched", "target": "git-diff", "label": "cleans touched files"}, {"source": "save-failed-patch", "target": "task-log-store", "label": "stored with task"}, {"source": "final-report", "target": "failed-clean", "label": "reports clean failure"}, {"source": "final-report", "target": "failed-dirty", "label": "reports dirty failure"}, {"source": "reviewer-agent", "target": "reviewer-smart-policy", "label": "must use"}, {"source": "reviewer-smart-policy", "target": "model-policies", "label": "enforced by"}, {"source": "provider-router", "target": "reviewer-smart-policy", "label": "routes reviewer"}, {"source": "fixture-tests", "target": "rollback-manager", "label": "tests rollback"}, {"source": "fixture-tests", "target": "context-budget", "label": "tests token limits"}]};
+
+const colors = {
+  "Core": "#a78bfa",
+  "Interface": "#60a5fa",
+  "Command": "#38bdf8",
+  "Config": "#fbbf24",
+  "Context": "#34d399",
+  "Agent": "#f472b6",
+  "Provider": "#fb7185",
+  "Storage": "#c084fc",
+  "Tool": "#22d3ee",
+  "Safety": "#f97316",
+  "Output": "#facc15",
+  "Quality": "#4ade80",
+  "Future": "#94a3b8"
+};
+
+const canvas = document.getElementById("graph");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0, DPR = Math.max(1, window.devicePixelRatio || 1);
+
+const nodes = GRAPH.nodes.map((d, i) => ({
+  ...d,
+  x: Math.cos(i * 2.399) * (180 + (i % 7)*18),
+  y: Math.sin(i * 2.399) * (180 + (i % 5)*22),
+  vx: 0, vy: 0,
+  fixed: false
+}));
+const byId = new Map(nodes.map(n => [n.id, n]));
+const links = GRAPH.links.map(l => ({...l, source: byId.get(l.source), target: byId.get(l.target)}));
+
+nodes.forEach(n => n.degree = 0);
+links.forEach(l => { l.source.degree++; l.target.degree++; });
+
+let scale = 0.82, tx = 0, ty = 0;
+let hover = null, selected = null, draggingNode = null, panning = false;
+let last = {x:0, y:0};
+let search = "", groupFilter = "all", localMode = false;
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (tx === 0 && ty === 0) { tx = W/2; ty = H/2; }
+}
+window.addEventListener("resize", resize);
+resize();
+
+const groupFilterEl = document.getElementById("groupFilter");
+[...new Set(nodes.map(n => n.group))].sort().forEach(g => {
+  const opt = document.createElement("option");
+  opt.value = g; opt.textContent = g;
+  groupFilterEl.appendChild(opt);
+});
+
+const legend = document.getElementById("legend");
+Object.keys(colors).forEach(g => {
+  const count = nodes.filter(n => n.group === g).length;
+  if (!count) return;
+  const row = document.createElement("div");
+  row.className = "legend-row";
+  row.innerHTML = `<span class="legend-left"><span class="dot" style="background:${colors[g]}"></span>${g}</span><span>${count}</span>`;
+  legend.appendChild(row);
+});
+const stats = document.createElement("div");
+stats.className = "stats";
+stats.innerHTML = `${nodes.length} nodes · ${links.length} links`;
+legend.appendChild(stats);
+
+document.getElementById("search").addEventListener("input", e => search = e.target.value.trim().toLowerCase());
+groupFilterEl.addEventListener("change", e => groupFilter = e.target.value);
+document.getElementById("resetBtn").addEventListener("click", () => {
+  selected = null; hover = null; localMode = false;
+  document.getElementById("localBtn").textContent = "Local: off";
+  nodes.forEach((n,i)=>{ n.fixed=false; n.vx=0; n.vy=0; n.x=Math.cos(i*2.399)*(180+(i%7)*18); n.y=Math.sin(i*2.399)*(180+(i%5)*22); });
+  fit();
+  updateDetails(null);
+});
+document.getElementById("fitBtn").addEventListener("click", fit);
+document.getElementById("localBtn").addEventListener("click", () => {
+  localMode = !localMode;
+  document.getElementById("localBtn").textContent = localMode ? "Local: on" : "Local: off";
+});
+
+function graphToScreen(x,y){ return {x: x*scale + tx, y: y*scale + ty}; }
+function screenToGraph(x,y){ return {x: (x-tx)/scale, y: (y-ty)/scale}; }
+
+function nodeRadius(n){ return 5 + Math.min(12, Math.sqrt(n.degree) * 2.8); }
+
+function neighborsOf(node) {
+  const s = new Set([node.id]);
+  links.forEach(l => {
+    if (l.source === node) s.add(l.target.id);
+    if (l.target === node) s.add(l.source.id);
+  });
+  return s;
+}
+function activeSet() {
+  const focus = hover || selected;
+  return focus ? neighborsOf(focus) : null;
+}
+function visibleNode(n) {
+  if (groupFilter !== "all" && n.group !== groupFilter) return false;
+  if (search) return (n.label + " " + n.group + " " + n.description).toLowerCase().includes(search);
+  if (localMode && selected) return neighborsOf(selected).has(n.id);
+  return true;
+}
+function visibleLink(l) { return visibleNode(l.source) && visibleNode(l.target); }
+
+function step() {
+  const vis = nodes.filter(visibleNode);
+  const centerStrength = 0.006;
+  const repel = 1800;
+  const linkDist = 120;
+  const linkStrength = 0.018;
+
+  // center force
+  for (const n of vis) {
+    n.vx += -n.x * centerStrength;
+    n.vy += -n.y * centerStrength;
+  }
+
+  // repulsion
+  for (let i=0; i<vis.length; i++) {
+    for (let j=i+1; j<vis.length; j++) {
+      const a=vis[i], b=vis[j];
+      let dx=b.x-a.x, dy=b.y-a.y;
+      let d2=dx*dx+dy*dy+0.01;
+      let d=Math.sqrt(d2);
+      const force = repel / d2;
+      dx/=d; dy/=d;
+      if (!a.fixed) { a.vx -= dx*force; a.vy -= dy*force; }
+      if (!b.fixed) { b.vx += dx*force; b.vy += dy*force; }
+    }
+  }
+
+  // links
+  for (const l of links) {
+    if (!visibleLink(l)) continue;
+    const a=l.source, b=l.target;
+    let dx=b.x-a.x, dy=b.y-a.y;
+    let d=Math.sqrt(dx*dx+dy*dy) || 1;
+    let diff = d - linkDist;
+    dx/=d; dy/=d;
+    let f = diff * linkStrength;
+    if (!a.fixed) { a.vx += dx*f; a.vy += dy*f; }
+    if (!b.fixed) { b.vx -= dx*f; b.vy -= dy*f; }
+  }
+
+  // integrate
+  for (const n of nodes) {
+    if (n.fixed) continue;
+    n.vx *= 0.86; n.vy *= 0.86;
+    n.x += n.vx; n.y += n.vy;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+
+  // background glow
+  const grad = ctx.createRadialGradient(W/2,H/2,50,W/2,H/2,Math.max(W,H)*0.65);
+  grad.addColorStop(0, "rgba(139,92,246,0.10)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,H);
+
+  const active = activeSet();
+  const focus = hover || selected;
+
+  // links
+  for (const l of links) {
+    if (!visibleLink(l)) continue;
+    const a = graphToScreen(l.source.x, l.source.y);
+    const b = graphToScreen(l.target.x, l.target.y);
+    const hot = focus && (l.source === focus || l.target === focus);
+    const dim = active && (!active.has(l.source.id) || !active.has(l.target.id));
+    ctx.beginPath();
+    ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+    ctx.strokeStyle = hot ? "rgba(255,255,255,0.95)" : (dim ? "rgba(120,110,150,0.08)" : "rgba(167,139,250,0.28)");
+    ctx.lineWidth = hot ? 2.2 : 1.0;
+    ctx.stroke();
+
+    if (hot && scale > 0.55) {
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+      ctx.font = "11px Inter, sans-serif";
+      ctx.fillStyle = "rgba(235,230,255,0.78)";
+      ctx.fillText(l.label, mx+5, my-5);
+    }
+  }
+
+  // nodes
+  const visible = nodes.filter(visibleNode);
+  visible.sort((a,b)=>a.degree-b.degree).forEach(n => {
+    const p = graphToScreen(n.x,n.y);
+    const r = nodeRadius(n);
+    const isFocus = n === focus;
+    const isNeighbor = active ? active.has(n.id) : true;
+    const alpha = isNeighbor ? 1 : 0.15;
+    const color = colors[n.group] || "#ddd";
+
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,r+8,0,Math.PI*2);
+    ctx.fillStyle = isFocus ? "rgba(255,255,255,0.16)" : `rgba(139,92,246,${0.06*alpha})`;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fillStyle = hexToRgba(color, isNeighbor ? 0.95 : 0.23);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.strokeStyle = isFocus ? "#ffffff" : hexToRgba("#ffffff", isNeighbor ? 0.34 : 0.05);
+    ctx.lineWidth = isFocus ? 2.2 : 1.0;
+    ctx.stroke();
+
+    const shouldLabel = isFocus || isNeighbor && (scale > 0.58 || n.degree > 3);
+    if (shouldLabel) {
+      ctx.font = `${isFocus ? "700" : "500"} ${isFocus ? 14 : 12}px Inter, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillStyle = isNeighbor ? "rgba(245,243,255,0.94)" : "rgba(245,243,255,0.18)";
+      ctx.fillText(n.label, p.x, p.y - r - 10);
+    }
+  });
+
+  requestAnimationFrame(loop);
+}
+
+function hexToRgba(hex, alpha) {
+  const h = hex.replace("#","");
+  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function loop() {
+  for (let i=0; i<2; i++) step();
+  draw();
+}
+requestAnimationFrame(loop);
+
+function getNodeAt(sx,sy) {
+  for (let i=nodes.length-1; i>=0; i--) {
+    const n = nodes[i];
+    if (!visibleNode(n)) continue;
+    const p = graphToScreen(n.x,n.y);
+    const r = nodeRadius(n) + 8;
+    if ((sx-p.x)**2 + (sy-p.y)**2 <= r*r) return n;
+  }
+  return null;
+}
+
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  if (draggingNode) {
+    const g = screenToGraph(sx,sy);
+    draggingNode.x = g.x; draggingNode.y = g.y;
+    draggingNode.vx = 0; draggingNode.vy = 0;
+    return;
+  }
+  if (panning) {
+    tx += sx - last.x; ty += sy - last.y;
+    last = {x:sx,y:sy};
+    return;
+  }
+  hover = getNodeAt(sx,sy);
+});
+
+canvas.addEventListener("mousedown", e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const n = getNodeAt(sx,sy);
+  if (n) {
+    draggingNode = n; n.fixed = true;
+  } else {
+    panning = true; last = {x:sx,y:sy};
+  }
+});
+
+canvas.addEventListener("mouseup", () => {
+  draggingNode = null; panning = false;
+});
+canvas.addEventListener("mouseleave", () => {
+  draggingNode = null; panning = false; hover = null;
+});
+
+canvas.addEventListener("click", e => {
+  const rect = canvas.getBoundingClientRect();
+  const n = getNodeAt(e.clientX - rect.left, e.clientY - rect.top);
+  if (n) {
+    selected = selected === n ? null : n;
+    localMode = selected ? true : false;
+    document.getElementById("localBtn").textContent = localMode ? "Local: on" : "Local: off";
+    updateDetails(selected);
+  }
+});
+
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const before = screenToGraph(mx,my);
+  const factor = e.deltaY < 0 ? 1.09 : 0.92;
+  scale = Math.max(0.18, Math.min(3.2, scale * factor));
+  const after = graphToScreen(before.x,before.y);
+  tx += mx - after.x; ty += my - after.y;
+}, {passive:false});
+
+function updateDetails(n) {
+  const el = document.getElementById("details");
+  if (!n) {
+    el.innerHTML = `<h2>Global Graph</h2><span class="chip">Obsidian-style</span><span class="chip">MVP architecture</span><p>Hover a node to highlight direct connections. Click a node to lock its local graph. Drag nodes, scroll to zoom, and drag empty space to pan.</p><p class="empty">Start with <strong>RDT v2</strong>, <strong>Task Runner</strong>, <strong>Provider Router</strong>, or <strong>Tool System</strong>.</p>`;
+    return;
+  }
+  const rel = links.filter(l => l.source === n || l.target === n)
+    .map(l => {
+      const other = l.source === n ? l.target : l.source;
+      return `<li><strong>${other.label}</strong> — ${l.label}</li>`;
+    }).join("");
+  el.innerHTML = `
+    <h2>${n.label}</h2>
+    <span class="chip">${n.group}</span>
+    <span class="chip">${n.phase}</span>
+    <span class="chip">${n.degree} links</span>
+    <p>${n.description}</p>
+    <h3 style="font-size:13px;margin:14px 0 4px;color:#f5f3ff;">Connected nodes</h3>
+    <ul>${rel}</ul>
+  `;
+}
+
+function fit() {
+  const vis = nodes.filter(visibleNode);
+  if (!vis.length) return;
+  const minX = Math.min(...vis.map(n=>n.x)), maxX = Math.max(...vis.map(n=>n.x));
+  const minY = Math.min(...vis.map(n=>n.y)), maxY = Math.max(...vis.map(n=>n.y));
+  const gw = Math.max(1, maxX-minX), gh = Math.max(1, maxY-minY);
+  scale = Math.max(0.25, Math.min(1.6, 0.82 * Math.min(W/gw, H/gh)));
+  tx = W/2 - ((minX+maxX)/2) * scale;
+  ty = H/2 - ((minY+maxY)/2) * scale;
+}
+setTimeout(fit, 400);
+
+// Tooltip functionality
+const tooltip = document.getElementById('tooltip');
+let mouseX = 0, mouseY = 0;
+
+function showTooltip(node) {
+  tooltip.innerHTML = `<strong>${node.label}</strong><br><em>${node.group}</em><br>${node.description.substring(0, 100)}`;
+  tooltip.style.display = 'block';
+}
+function hideTooltip() {
+  tooltip.style.display = 'none';
+}
+
+// Track mouse position for tooltip positioning
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+  
+  if (!hover) {
+    hideTooltip();
+    return;
+  }
+  
+  const p = graphToScreen(hover.x, hover.y);
+  tooltip.style.left = (mouseX + 12) + 'px';
+  tooltip.style.top = (mouseY + 12) + 'px';
+  showTooltip(hover);
+});
+
+canvas.addEventListener('mouseleave', hideTooltip);
+
+// Zoom controls
+document.getElementById('zoomInBtn').addEventListener('click', () => {
+  const focusX = mouseX;
+  const focusY = mouseY;
+  const before = screenToGraph(focusX, focusY);
+  scale = Math.min(3.2, scale * 1.15);
+  const after = graphToScreen(before.x, before.y);
+  tx += focusX - after.x;
+  ty += focusY - after.y;
+});
+
+document.getElementById('zoomOutBtn').addEventListener('click', () => {
+  const focusX = mouseX;
+  const focusY = mouseY;
+  const before = screenToGraph(focusX, focusY);
+  scale = Math.max(0.18, scale / 1.15);
+  const after = graphToScreen(before.x, before.y);
+  tx += focusX - after.x;
+  ty += focusY - after.y;
+});
+
+// Reset view to original fit
+document.getElementById('resetViewBtn').addEventListener('click', fit);
+</script>
+</body>
+</html>

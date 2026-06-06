@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RDT v2 — Implementation Plan</title>
+<style>
+  :root {
+    --bg: #0d0d14;
+    --surface: #13131f;
+    --card: #1a1a2e;
+    --border: rgba(255,255,255,0.08);
+    --border-hover: rgba(139,92,246,0.4);
+    --text: #e8e4f4;
+    --muted: #9490aa;
+    --accent: #8b5cf6;
+    --accent-dim: rgba(139,92,246,0.15);
+    --accent-glow: rgba(139,92,246,0.25);
+    --green: #10b981;
+    --green-dim: rgba(16,185,129,0.12);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245,158,11,0.12);
+    --red: #ef4444;
+    --red-dim: rgba(239,68,68,0.12);
+    --blue: #3b82f6;
+    --blue-dim: rgba(59,130,246,0.12);
+    --teal: #14b8a6;
+    --teal-dim: rgba(20,184,166,0.12);
+    --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; line-height: 1.6; min-height: 100vh; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 20px 16px 16px; position: sticky; top: 0; z-index: 100; }
+  .header-title { font-size: 18px; font-weight: 600; color: var(--text); letter-spacing: -0.3px; }
+  .header-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .header-chips { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+  .chip-purple { background: var(--accent-dim); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); }
+  .chip-green { background: var(--green-dim); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .chip-amber { background: var(--amber-dim); color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+
+  .progress-bar-wrap { margin-top: 12px; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+  .progress-track { background: rgba(255,255,255,0.08); border-radius: 6px; height: 6px; }
+  .progress-fill { background: linear-gradient(90deg, var(--accent), var(--teal)); border-radius: 6px; height: 6px; transition: width 0.4s ease; }
+
+  .nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 12px; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav-btn { padding: 10px 12px; font-size: 12px; font-weight: 500; color: var(--muted); background: none; border: none; cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .nav-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .nav-btn:hover { color: var(--text); }
+
+  .content { padding: 16px; max-width: 480px; margin: 0 auto; }
+
+  .section { display: none; }
+  .section.active { display: block; }
+
+  .phase-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; overflow: hidden; cursor: pointer; transition: border-color 0.2s; }
+  .phase-card:hover { border-color: var(--border-hover); }
+  .phase-card.open { border-color: var(--accent-glow); }
+  .phase-header { padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+  .phase-num { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+  .phase-meta { flex: 1; min-width: 0; }
+  .phase-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .phase-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .phase-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .badge { padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 500; }
+  .phase-toggle { color: var(--muted); font-size: 16px; transition: transform 0.2s; }
+  .phase-card.open .phase-toggle { transform: rotate(180deg); }
+  .phase-body { display: none; padding: 0 16px 16px; border-top: 1px solid var(--border); }
+  .phase-card.open .phase-body { display: block; }
+
+  .session-block { margin-top: 12px; }
+  .session-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+  .session-card { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+  .session-head { padding: 10px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .session-num { width: 22px; height: 22px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+  .session-title { font-size: 13px; font-weight: 500; flex: 1; }
+  .session-status { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid var(--border-hover); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; }
+  .session-status.done { background: var(--green); border-color: var(--green); }
+  .session-detail { display: none; padding: 0 12px 12px; }
+  .session-card.open .session-detail { display: block; }
+
+  .spec-ref { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 11px; color: var(--accent); background: var(--accent-dim); padding: 5px 9px; border-radius: 6px; }
+
+  .task-list { list-style: none; }
+  .task-item { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--muted); }
+  .task-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex-shrink: 0; }
+
+  .prompt-box { background: rgba(0,0,0,0.4); border: 1px solid rgba(139,92,246,0.25); border-left: 3px solid var(--accent); border-radius: 6px; padding: 10px; margin-top: 10px; }
+  .prompt-label { font-size: 10px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+  .prompt-text { font-family: var(--mono); font-size: 11px; color: #c4b5fd; line-height: 1.7; white-space: pre-wrap; }
+  .copy-btn { background: var(--accent-dim); border: 1px solid rgba(139,92,246,0.3); color: var(--accent); border-radius: 4px; padding: 2px 7px; font-size: 10px; cursor: pointer; }
+  .copy-btn:active { opacity: 0.7; }
+
+  .accept-list { margin-top: 10px; }
+  .accept-title { font-size: 11px; font-weight: 600; color: var(--green); margin-bottom: 6px; }
+  .accept-item { display: flex; align-items: flex-start; gap: 7px; padding: 3px 0; font-size: 12px; color: var(--muted); }
+  .check-icon { color: var(--green); font-size: 12px; margin-top: 1px; flex-shrink: 0; }
+
+  .warn-box { background: var(--amber-dim); border: 1px solid rgba(245,158,11,0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; color: #fcd34d; }
+  .warn-box strong { display: block; margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--amber); }
+
+  .info-box { background: var(--blue-dim); border: 1px solid rgba(59,130,246,0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; color: #93c5fd; }
+  .info-box strong { display: block; margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--blue); }
+
+  .stack-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  .stack-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 11px; }
+  .stack-table td { padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: top; }
+  .stack-table td:first-child { color: var(--muted); width: 90px; }
+  .stack-table td:last-child { color: var(--text); }
+  .stack-table code { font-family: var(--mono); font-size: 11px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 3px; color: #c4b5fd; }
+
+  .flow-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 8px 0; }
+  .flow-node { background: var(--accent-dim); border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 500; color: #ddd6fe; white-space: nowrap; }
+  .flow-arrow { color: var(--muted); font-size: 12px; }
+
+  .mvp-item { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .mvp-item:last-child { border-bottom: none; }
+  .mvp-dot { width: 7px; height: 7px; border-radius: 2px; margin-top: 5px; flex-shrink: 0; }
+  .mvp-text { font-size: 12px; }
+  .mvp-text span { color: var(--muted); font-size: 11px; display: block; margin-top: 1px; }
+
+  .footer-note { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 16px; text-align: center; font-size: 12px; color: var(--muted); }
+  .footer-note strong { color: var(--text); font-weight: 500; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .section.active { animation: fadeIn 0.2s ease; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h2 style="sr-only">RDT v2 Implementation Plan for Codebuff</h2>
+  <div class="header-title">RDT v2 — Build Plan</div>
+  <div class="header-sub">Terminal-first AI coding agent · Codebuff free tier</div>
+  <div class="header-chips">
+    <span class="chip chip-purple">7 Phases</span>
+    <span class="chip chip-green">TypeScript + Bun</span>
+    <span class="chip chip-amber">~15 sessions</span>
+  </div>
+  <div class="progress-bar-wrap">
+    <div class="progress-label"><span>Build progress</span><span id="prog-pct">0 / 30 tasks</span></div>
+    <div class="progress-track"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
+  </div>
+</div>
+
+<div class="nav">
+  <button class="nav-btn active" onclick="switchTab('overview')">Overview</button>
+  <button class="nav-btn" onclick="switchTab('phases')">Phases</button>
+  <button class="nav-btn" onclick="switchTab('sessions')">Sessions</button>
+  <button class="nav-btn" onclick="switchTab('checklist')">Checklist</button>
+  <button class="nav-btn" onclick="switchTab('mvp')">MVP Gate</button>
+</div>
+
+<!-- OVERVIEW TAB -->
+<div class="content">
+<div class="section active" id="tab-overview">
+
+  <div class="warn-box">
+    <strong>⚠ Freebuff constraint</strong>
+    Each session: feed only the relevant spec section. Never dump the full 32KB doc at once.
+  </div>
+
+  <div class="info-box">
+    <strong>🎯 The one rule</strong>
+    Prove reliability before adding features. Core loop first. Everything else later.
+  </div>
+
+  <div style="margin-bottom: 12px;">
+    <div class="session-label">Core agent flow</div>
+    <div class="flow-row">
+      <div class="flow-node">File Picker</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">Planner</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">Editor</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">Reviewer</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">Report</div>
+    </div>
+  </div>
+
+  <div class="session-label">Tech stack</div>
+  <table class="stack-table">
+    <tr><th>Layer</th><th>Choice</th></tr>
+    <tr><td>Language</td><td><code>TypeScript</code></td></tr>
+    <tr><td>Runtime</td><td><code>Bun</code> (fallback: Node + pnpm)</td></tr>
+    <tr><td>CLI</td><td><code>commander</code> or <code>cac</code></td></tr>
+    <tr><td>Storage</td><td><code>SQLite</code> — no ChromaDB in MVP</td></tr>
+    <tr><td>Memory</td><td><code>knowledge.md</code> + <code>AGENTS.md</code></td></tr>
+    <tr><td>Providers</td><td>OpenRouter → Groq → Ollama</td></tr>
+    <tr><td>Testing</td><td>Unit + fixture integration tests</td></tr>
+  </table>
+
+  <div style="margin-top: 16px;" class="session-label">NOT in MVP</div>
+  <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px;">
+    <span style="font-size:11px; padding: 3px 8px; background: var(--red-dim); color: #fca5a5; border-radius: 6px; border: 1px solid rgba(239,68,68,0.2);">FastAPI bridge</span>
+    <span style="font-size:11px; padding: 3px 8px; background: var(--red-dim); color: #fca5a5; border-radius: 6px; border: 1px solid rgba(239,68,68,0.2);">Dashboard</span>
+    <span style="font-size:11px; padding: 3px 8px; background: var(--red-dim); color: #fca5a5; border-radius: 6px; border: 1px solid rgba(239,68,68,0.2);">ChromaDB</span>
+    <span style="font-size:11px; padding: 3px 8px; background: var(--red-dim); color: #fca5a5; border-radius: 6px; border: 1px solid rgba(239,68,68,0.2);">LangGraph</span>
+    <span style="font-size:11px; padding: 3px 8px; background: var(--red-dim); color: #fca5a5; border-radius: 6px; border: 1px solid rgba(239,68,68,0.2);">Swarm</span>
+    <span style="font-size:11px; padding: 3px 8px; background: var(--red-dim); color: #fca5a5; border-radius: 6px; border: 1px solid rgba(239,68,68,0.2);">PWA / TUI</span>
+    <span style="font-size:11px; padding: 3px 8px; background: var(--red-dim); color: #fca5a5; border-radius: 6px; border: 1px solid rgba(239,68,68,0.2);">Self-evolution</span>
+  </div>
+
+  <div class="footer-note" style="margin-top: 16px;">
+    <strong>MVP done when:</strong><br>
+    <code style="font-family: var(--mono); font-size: 12px; color: #c4b5fd;">rdt "fix the failing test"</code><br>
+    runs end-to-end with plan → patch → test → report
+  </div>
+
+</div>
+
+<!-- PHASES TAB -->
+<div class="section" id="tab-phases">
+
+  <!-- Phase 0 -->
+  <div class="phase-card" onclick="togglePhase(this)">
+    <div class="phase-header">
+      <div class="phase-num" style="background: rgba(139,92,246,0.15); color: #c4b5fd;">0</div>
+      <div class="phase-meta">
+        <div class="phase-title">Repo Setup</div>
+        <div class="phase-desc">Clean TypeScript project scaffold</div>
+        <div class="phase-badges">
+          <span class="badge" style="background: var(--accent-dim); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.2);">Spec §4, §6.2, §17</span>
+          <span class="badge" style="background: var(--green-dim); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2);">1 session</span>
+        </div>
+      </div>
+      <div class="phase-toggle">▾</div>
+    </div>
+    <div class="phase-body">
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Init package.json + tsconfig.json</li>
+        <li class="task-item"><span class="task-dot"></span>Configure formatter (Biome or ESLint + Prettier)</li>
+        <li class="task-item"><span class="task-dot"></span>Create full src/ directory structure from §6.2</li>
+        <li class="task-item"><span class="task-dot"></span>Add test framework (Vitest or Bun test)</li>
+        <li class="task-item"><span class="task-dot"></span>Create README, AGENTS.md, knowledge.md</li>
+        <li class="task-item"><span class="task-dot"></span>Placeholder CLI: <code style="font-family:var(--mono); font-size:10px;">rdt --help</code></li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">✓ Acceptance criteria</div>
+        <div class="accept-item"><span class="check-icon">✓</span> bun install works</div>
+        <div class="accept-item"><span class="check-icon">✓</span> tests run (zero tests is fine)</div>
+        <div class="accept-item"><span class="check-icon">✓</span> CLI prints version/help</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 1 -->
+  <div class="phase-card" onclick="togglePhase(this)">
+    <div class="phase-header">
+      <div class="phase-num" style="background: rgba(20,184,166,0.15); color: #5eead4;">1</div>
+      <div class="phase-meta">
+        <div class="phase-title">CLI + Project Detection</div>
+        <div class="phase-desc">rdt init, rdt status, repo scanning</div>
+        <div class="phase-badges">
+          <span class="badge" style="background: var(--teal-dim); color: #5eead4; border: 1px solid rgba(20,184,166,0.2);">Spec §7, §12</span>
+          <span class="badge" style="background: var(--green-dim); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2);">2 sessions</span>
+        </div>
+      </div>
+      <div class="phase-toggle">▾</div>
+    </div>
+    <div class="phase-body">
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Implement <code style="font-family:var(--mono);font-size:10px;">rdt init</code> — creates AGENTS.md, knowledge.md, .rdt/config.yaml</li>
+        <li class="task-item"><span class="task-dot"></span>Implement <code style="font-family:var(--mono);font-size:10px;">rdt status</code> — show providers, project type, last task</li>
+        <li class="task-item"><span class="task-dot"></span>Detect package manager (npm/bun/pnpm/yarn)</li>
+        <li class="task-item"><span class="task-dot"></span>Detect test/lint commands from package.json</li>
+        <li class="task-item"><span class="task-dot"></span>Generate .rdt/config.yaml with defaults from §8.1</li>
+        <li class="task-item"><span class="task-dot"></span>Load and parse config schema</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">✓ Acceptance criteria</div>
+        <div class="accept-item"><span class="check-icon">✓</span> rdt init creates required files</div>
+        <div class="accept-item"><span class="check-icon">✓</span> rdt status shows project info</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 2 -->
+  <div class="phase-card" onclick="togglePhase(this)">
+    <div class="phase-header">
+      <div class="phase-num" style="background: rgba(59,130,246,0.15); color: #93c5fd;">2</div>
+      <div class="phase-meta">
+        <div class="phase-title">Tool Layer</div>
+        <div class="phase-desc">All filesystem + shell tools with ToolResult</div>
+        <div class="phase-badges">
+          <span class="badge" style="background: var(--blue-dim); color: #93c5fd; border: 1px solid rgba(59,130,246,0.2);">Spec §11</span>
+          <span class="badge" style="background: var(--green-dim); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2);">2 sessions</span>
+        </div>
+      </div>
+      <div class="phase-toggle">▾</div>
+    </div>
+    <div class="phase-body">
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Define ToolResult&lt;T&gt; type with error codes</li>
+        <li class="task-item"><span class="task-dot"></span>list_files — respects .gitignore</li>
+        <li class="task-item"><span class="task-dot"></span>read_file — size limits enforced</li>
+        <li class="task-item"><span class="task-dot"></span>search_files — filename + content search</li>
+        <li class="task-item"><span class="task-dot"></span>apply_patch — unified diff format</li>
+        <li class="task-item"><span class="task-dot"></span>git_diff + git_restore_touched</li>
+        <li class="task-item"><span class="task-dot"></span>run_shell + test_runner with blocked commands list</li>
+        <li class="task-item"><span class="task-dot"></span>git_status_snapshot for baseline capture</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">✓ Acceptance criteria</div>
+        <div class="accept-item"><span class="check-icon">✓</span> All tools return ToolResult shape</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Unit tests for apply_patch pass</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Shell blocks dangerous commands</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 3 -->
+  <div class="phase-card" onclick="togglePhase(this)">
+    <div class="phase-header">
+      <div class="phase-num" style="background: rgba(245,158,11,0.15); color: #fcd34d;">3</div>
+      <div class="phase-meta">
+        <div class="phase-title">Provider Layer</div>
+        <div class="phase-desc">Provider interface + adapters + mock</div>
+        <div class="phase-badges">
+          <span class="badge" style="background: var(--amber-dim); color: #fcd34d; border: 1px solid rgba(245,158,11,0.2);">Spec §9.1–9.2</span>
+          <span class="badge" style="background: var(--green-dim); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2);">2 sessions</span>
+        </div>
+      </div>
+      <div class="phase-toggle">▾</div>
+    </div>
+    <div class="phase-body">
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Define provider interface and ProviderModelState type</li>
+        <li class="task-item"><span class="task-dot"></span>Implement mock provider for testing</li>
+        <li class="task-item"><span class="task-dot"></span>Implement OpenAI-compatible adapter</li>
+        <li class="task-item"><span class="task-dot"></span>OpenRouter config path with OPENROUTER_API_KEY</li>
+        <li class="task-item"><span class="task-dot"></span>Groq adapter (openai-compatible base)</li>
+        <li class="task-item"><span class="task-dot"></span>Ollama placeholder adapter</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">✓ Acceptance criteria</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Mock provider completes test tasks</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Missing API key gives readable error</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 4 -->
+  <div class="phase-card" onclick="togglePhase(this)">
+    <div class="phase-header">
+      <div class="phase-num" style="background: rgba(239,68,68,0.15); color: #fca5a5;">4</div>
+      <div class="phase-meta">
+        <div class="phase-title">Provider Router</div>
+        <div class="phase-desc">Fallback, cooldown, quota, token budget</div>
+        <div class="phase-badges">
+          <span class="badge" style="background: var(--red-dim); color: #fca5a5; border: 1px solid rgba(239,68,68,0.2);">Spec §9.3–9.5</span>
+          <span class="badge" style="background: var(--green-dim); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2);">2 sessions</span>
+        </div>
+      </div>
+      <div class="phase-toggle">▾</div>
+    </div>
+    <div class="phase-body">
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Implement 12-step routing algorithm from §9.3</li>
+        <li class="task-item"><span class="task-dot"></span>Cooldown after 429 errors</li>
+        <li class="task-item"><span class="task-dot"></span>Daily + RPM quota tracking per provider</li>
+        <li class="task-item"><span class="task-dot"></span>Model policy resolution (cheap_fast / smart_reasoning / code_strong)</li>
+        <li class="task-item"><span class="task-dot"></span>Provider state persistence via SQLite</li>
+        <li class="task-item"><span class="task-dot"></span>Token budget enforcement per agent (§9.5)</li>
+        <li class="task-item"><span class="task-dot"></span>Context truncation fallback strategy</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">✓ Acceptance criteria</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Router skips cooldown providers</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Unit tests: 429 → fallback → success</div>
+        <div class="accept-item"><span class="check-icon">✓</span> All failures reported clearly</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 5 -->
+  <div class="phase-card" onclick="togglePhase(this)">
+    <div class="phase-header">
+      <div class="phase-num" style="background: rgba(139,92,246,0.2); color: #a78bfa;">5</div>
+      <div class="phase-meta">
+        <div class="phase-title">Four Agents</div>
+        <div class="phase-desc">FilePicker → Planner → Editor → Reviewer</div>
+        <div class="phase-badges">
+          <span class="badge" style="background: var(--accent-dim); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.2);">Spec §10, §15</span>
+          <span class="badge" style="background: var(--amber-dim); color: #fcd34d; border: 1px solid rgba(245,158,11,0.2);">3 sessions</span>
+        </div>
+      </div>
+      <div class="phase-toggle">▾</div>
+    </div>
+    <div class="phase-body">
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Define AgentInput / AgentOutput types (§10.1)</li>
+        <li class="task-item"><span class="task-dot"></span>File Picker: returns FileSelection JSON, no direct FS access</li>
+        <li class="task-item"><span class="task-dot"></span>Planner: returns Plan with steps, risks, testPlan</li>
+        <li class="task-item"><span class="task-dot"></span>Editor: apply_patch only, inspect diff after every edit</li>
+        <li class="task-item"><span class="task-dot"></span>Reviewer: must use smart_reasoning minimum — runs tests, reviews diff</li>
+        <li class="task-item"><span class="task-dot"></span>Prompt standards from §15 for each agent</li>
+        <li class="task-item"><span class="task-dot"></span>Output schema validation — reject malformed responses</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">✓ Acceptance criteria</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Each agent works with mock provider</div>
+        <div class="accept-item"><span class="check-icon">✓</span> No direct filesystem calls from agents</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Malformed model output handled gracefully</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 6 -->
+  <div class="phase-card" onclick="togglePhase(this)">
+    <div class="phase-header">
+      <div class="phase-num" style="background: rgba(20,184,166,0.2); color: #2dd4bf;">6</div>
+      <div class="phase-meta">
+        <div class="phase-title">Task Runner</div>
+        <div class="phase-desc">State machine, logs, rollback, final report</div>
+        <div class="phase-badges">
+          <span class="badge" style="background: var(--teal-dim); color: #5eead4; border: 1px solid rgba(20,184,166,0.2);">Spec §13, §14</span>
+          <span class="badge" style="background: var(--amber-dim); color: #fcd34d; border: 1px solid rgba(245,158,11,0.2);">2 sessions</span>
+        </div>
+      </div>
+      <div class="phase-toggle">▾</div>
+    </div>
+    <div class="phase-body">
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Implement 13-state machine from §13</li>
+        <li class="task-item"><span class="task-dot"></span>Capture git baseline before first edit</li>
+        <li class="task-item"><span class="task-dot"></span>Connect all 4 agents in sequence</li>
+        <li class="task-item"><span class="task-dot"></span>Edit/review loop — max 3 passes</li>
+        <li class="task-item"><span class="task-dot"></span>Save task log to .rdt/tasks/&lt;id&gt;.json</li>
+        <li class="task-item"><span class="task-dot"></span>Rollback on failure (FAILED_CLEAN vs FAILED_DIRTY)</li>
+        <li class="task-item"><span class="task-dot"></span>Generate final report with provider usage summary</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">✓ Acceptance criteria</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Full fixture task passes end-to-end</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Failed tasks produce readable report</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Task log saved with git diff inside</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 7 -->
+  <div class="phase-card" onclick="togglePhase(this)">
+    <div class="phase-header">
+      <div class="phase-num" style="background: rgba(16,185,129,0.15); color: #6ee7b7;">7</div>
+      <div class="phase-meta">
+        <div class="phase-title">Smoke Test</div>
+        <div class="phase-desc">Run RDT on its own repo. Real-world validation.</div>
+        <div class="phase-badges">
+          <span class="badge" style="background: var(--green-dim); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2);">Spec §16, §22</span>
+          <span class="badge" style="background: var(--green-dim); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2);">1 session</span>
+        </div>
+      </div>
+      <div class="phase-toggle">▾</div>
+    </div>
+    <div class="phase-body">
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Run rdt init on real repo</li>
+        <li class="task-item"><span class="task-dot"></span>Run rdt status — verify all green</li>
+        <li class="task-item"><span class="task-dot"></span>Run rdt "fix failing test in fixture repo"</li>
+        <li class="task-item"><span class="task-dot"></span>Inspect git diff — must be surgical</li>
+        <li class="task-item"><span class="task-dot"></span>Check task log saved to .rdt/tasks/</li>
+        <li class="task-item"><span class="task-dot"></span>Verify provider usage summary in final report</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">✓ Acceptance criteria</div>
+        <div class="accept-item"><span class="check-icon">✓</span> No crashes or unhandled rejections</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Diff is clean and intentional</div>
+        <div class="accept-item"><span class="check-icon">✓</span> MVP gate from §22 fully passed</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- SESSIONS TAB -->
+<div class="section" id="tab-sessions">
+
+  <div class="info-box">
+    <strong>📋 Session protocol</strong>
+    Always start a session with the context block below. Never paste the full spec.
+  </div>
+
+  <div class="prompt-box" style="margin-bottom: 16px;">
+    <div class="prompt-label">Session start template <button class="copy-btn" onclick="copyText('session-template')">Copy</button></div>
+    <div class="prompt-text" id="session-template">We are building RDT v2.
+A terminal-first AI coding agent in TypeScript/Bun.
+Continuing from last session.
+Today's focus: [PHASE NAME]
+Spec sections: [SECTION NUMBERS]
+
+Here is the relevant spec:
+[PASTE ONLY RELEVANT SECTION]</div>
+  </div>
+
+  <div class="session-label">Session breakdown</div>
+
+  <!-- Sessions -->
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(139,92,246,0.15); color: #c4b5fd;">S1</div>
+      <div class="session-title">Scaffold + CLI shell</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §4 (Stack) + §6.2 (Package structure)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Init bun project, tsconfig strict mode</li>
+        <li class="task-item"><span class="task-dot"></span>Create full src/ directory tree</li>
+        <li class="task-item"><span class="task-dot"></span>Placeholder CLI entry: rdt --help, rdt --version</li>
+        <li class="task-item"><span class="task-dot"></span>Biome or ESLint config</li>
+        <li class="task-item"><span class="task-dot"></span>Vitest setup with one passing test</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">Done when:</div>
+        <div class="accept-item"><span class="check-icon">✓</span> bun run test passes</div>
+        <div class="accept-item"><span class="check-icon">✓</span> bun run rdt --help prints output</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(20,184,166,0.15); color: #5eead4;">S2</div>
+      <div class="session-title">rdt init + rdt status</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §7.1, §7.3, §12, §8.1 (config.yaml)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>rdt init: detect project type, generate files</li>
+        <li class="task-item"><span class="task-dot"></span>Generate .rdt/config.yaml from schema</li>
+        <li class="task-item"><span class="task-dot"></span>rdt status: show project, providers, last task</li>
+        <li class="task-item"><span class="task-dot"></span>AGENTS.md + knowledge.md generator</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(59,130,246,0.15); color: #93c5fd;">S3</div>
+      <div class="session-title">File + search tools</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §11.1, §11.2 (list_files, read_file, search_files)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Define ToolResult&lt;T&gt; with all error types</li>
+        <li class="task-item"><span class="task-dot"></span>list_files with .gitignore support</li>
+        <li class="task-item"><span class="task-dot"></span>read_file with size limit guard</li>
+        <li class="task-item"><span class="task-dot"></span>search_files: filename regex + grep</li>
+        <li class="task-item"><span class="task-dot"></span>Unit tests for all three</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(59,130,246,0.15); color: #93c5fd;">S4</div>
+      <div class="session-title">Patch + git + shell tools</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §11.2 (apply_patch, git tools), §11.3 (shell safety), §14.4 (rollback)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>apply_patch: unified diff, rejects invalid patches</li>
+        <li class="task-item"><span class="task-dot"></span>git_diff, git_status_snapshot, git_restore_touched</li>
+        <li class="task-item"><span class="task-dot"></span>run_shell with blocked command list</li>
+        <li class="task-item"><span class="task-dot"></span>test_runner: detect and run test command</li>
+        <li class="task-item"><span class="task-dot"></span>save_failed_patch to .rdt/tasks/</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(245,158,11,0.15); color: #fcd34d;">S5</div>
+      <div class="session-title">Provider interface + mock</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §9.1, §9.2 (ProviderModelState type + interface)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Provider interface with complete type</li>
+        <li class="task-item"><span class="task-dot"></span>Mock provider — returns deterministic responses</li>
+        <li class="task-item"><span class="task-dot"></span>OpenAI-compatible adapter</li>
+        <li class="task-item"><span class="task-dot"></span>SQLite store for provider states</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(245,158,11,0.15); color: #fcd34d;">S6</div>
+      <div class="session-title">OpenRouter + Groq + Ollama</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §8.1 (providers config section only)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>OpenRouter adapter from config</li>
+        <li class="task-item"><span class="task-dot"></span>Groq adapter (openai-compatible)</li>
+        <li class="task-item"><span class="task-dot"></span>Ollama placeholder with local model support</li>
+        <li class="task-item"><span class="task-dot"></span>API key env var loading</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(239,68,68,0.15); color: #fca5a5;">S7</div>
+      <div class="session-title">Provider router core</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §9.3 (12-step routing algorithm)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Implement routing algorithm steps 1–12</li>
+        <li class="task-item"><span class="task-dot"></span>Cooldown state machine</li>
+        <li class="task-item"><span class="task-dot"></span>RPM + daily counter</li>
+        <li class="task-item"><span class="task-dot"></span>Provider state in SQLite</li>
+        <li class="task-item"><span class="task-dot"></span>Router unit tests: cooldown, 429, fallback</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(239,68,68,0.15); color: #fca5a5;">S8</div>
+      <div class="session-title">Model policies + token budget</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §9.4, §9.5 (token budget + truncation rules)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>cheap_fast / smart_reasoning / code_strong policies</li>
+        <li class="task-item"><span class="task-dot"></span>Per-agent context budgets from config</li>
+        <li class="task-item"><span class="task-dot"></span>Token counter utility</li>
+        <li class="task-item"><span class="task-dot"></span>Truncation: drop → summarize → excerpt</li>
+        <li class="task-item"><span class="task-dot"></span>Never truncate AGENTS.md / knowledge.md</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(139,92,246,0.2); color: #a78bfa;">S9</div>
+      <div class="session-title">File Picker + Planner agents</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §10.1, §10.2, §10.3, §15.2, §15.3</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>AgentInput / AgentOutput base types</li>
+        <li class="task-item"><span class="task-dot"></span>FilePicker: returns FileSelection with reasons</li>
+        <li class="task-item"><span class="task-dot"></span>Planner: returns Plan with steps + risks</li>
+        <li class="task-item"><span class="task-dot"></span>System prompts from §15 for both</li>
+        <li class="task-item"><span class="task-dot"></span>Output schema validation</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(139,92,246,0.2); color: #a78bfa;">S10</div>
+      <div class="session-title">Editor + Reviewer agents</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §10.4, §10.5, §15.4, §15.5</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Editor: apply_patch only, diff after every edit</li>
+        <li class="task-item"><span class="task-dot"></span>Editor: only edits files in approved plan</li>
+        <li class="task-item"><span class="task-dot"></span>Reviewer: smart_reasoning minimum enforced</li>
+        <li class="task-item"><span class="task-dot"></span>Reviewer: runs tests, reports pre-existing failures separately</li>
+        <li class="task-item"><span class="task-dot"></span>ReviewResult with approved bool + requiredFixes</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(20,184,166,0.2); color: #2dd4bf;">S11</div>
+      <div class="session-title">Task runner state machine</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §13, §14.4 (state machine + rollback)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Implement all 13 states</li>
+        <li class="task-item"><span class="task-dot"></span>Connect agents in sequence</li>
+        <li class="task-item"><span class="task-dot"></span>Edit/review loop: max 3 passes</li>
+        <li class="task-item"><span class="task-dot"></span>Capture baseline before first edit</li>
+        <li class="task-item"><span class="task-dot"></span>FAILED_CLEAN vs FAILED_DIRTY distinction</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(20,184,166,0.2); color: #2dd4bf;">S12</div>
+      <div class="session-title">Task logs + final report</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §12.3, §9.4 (task log schema + provider summary)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Save .rdt/tasks/&lt;id&gt;.json with full trace</li>
+        <li class="task-item"><span class="task-dot"></span>rdt task show &lt;id&gt; command</li>
+        <li class="task-item"><span class="task-dot"></span>Generate final report with provider usage</li>
+        <li class="task-item"><span class="task-dot"></span>Error messages per §14.3 format</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(16,185,129,0.15); color: #6ee7b7;">S13</div>
+      <div class="session-title">Integration tests</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §16.1, §16.2 (test fixtures)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Create tests/fixtures/ts-basic/ repo</li>
+        <li class="task-item"><span class="task-dot"></span>Create tests/fixtures/failing-test/ repo</li>
+        <li class="task-item"><span class="task-dot"></span>Integration test: RDT fixes TypeScript bug</li>
+        <li class="task-item"><span class="task-dot"></span>Integration test: RDT does not touch ignored files</li>
+        <li class="task-item"><span class="task-dot"></span>All unit tests passing</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="session-card" onclick="toggleSession(this)">
+    <div class="session-head">
+      <div class="session-num" style="background: rgba(16,185,129,0.2); color: #34d399;">S14</div>
+      <div class="session-title">Real-world smoke test</div>
+      <div class="session-status" onclick="toggleDone(event, this)"></div>
+    </div>
+    <div class="session-detail">
+      <div class="spec-ref">📄 Feed: §17 Phase 7 + §22 (MVP done definition)</div>
+      <ul class="task-list">
+        <li class="task-item"><span class="task-dot"></span>Run rdt init on real repo</li>
+        <li class="task-item"><span class="task-dot"></span>Run rdt status — all green</li>
+        <li class="task-item"><span class="task-dot"></span>Run rdt "fix the failing test"</li>
+        <li class="task-item"><span class="task-dot"></span>Verify every line in §22 checklist</li>
+      </ul>
+      <div class="accept-list">
+        <div class="accept-title">🎉 MVP done when this passes</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Selects files, creates plan</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Applies surgical patch</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Runs tests, produces report</div>
+        <div class="accept-item"><span class="check-icon">✓</span> Task log saved, no dirty repo</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- CHECKLIST TAB -->
+<div class="section" id="tab-checklist">
+
+  <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">From spec §21 — 30-item build checklist. Tap to toggle.</div>
+
+  <div id="checklist-container"></div>
+
+</div>
+
+<!-- MVP GATE TAB -->
+<div class="section" id="tab-mvp">
+
+  <div class="warn-box">
+    <strong>⛔ MVP is NOT done until every item below passes</strong>
+    From spec §22. Zero exceptions.
+  </div>
+
+  <div style="margin-top: 4px;">
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--accent);"></div>
+      <div class="mvp-text">RDT selects relevant files <span>File Picker returns FileSelection with reasons</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--accent);"></div>
+      <div class="mvp-text">RDT creates a plan <span>Planner returns Plan with steps + risks</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--accent);"></div>
+      <div class="mvp-text">RDT applies a patch <span>Editor uses apply_patch — not full rewrites</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--accent);"></div>
+      <div class="mvp-text">RDT runs tests/checks <span>test_runner executes detected command</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--accent);"></div>
+      <div class="mvp-text">RDT reviews the diff <span>Reviewer uses smart_reasoning minimum</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--accent);"></div>
+      <div class="mvp-text">RDT produces a final report <span>Includes provider usage summary</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--teal);"></div>
+      <div class="mvp-text">Task log is saved <span>.rdt/tasks/&lt;id&gt;.json with full trace + diff</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--teal);"></div>
+      <div class="mvp-text">Provider usage is saved <span>Which model handled each agent step</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--teal);"></div>
+      <div class="mvp-text">Rate limits are respected <span>Router cooldowns enforced, no retry abuse</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--amber);"></div>
+      <div class="mvp-text">Token budgets are enforced <span>No blind context overflow per agent</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--amber);"></div>
+      <div class="mvp-text">Reviewer uses smart_reasoning minimum <span>Hard policy — cannot use cheap_fast</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--green);"></div>
+      <div class="mvp-text">Failed edits rolled back or reported dirty <span>FAILED_CLEAN or FAILED_DIRTY state</span></div>
+    </div>
+    <div class="mvp-item">
+      <div class="mvp-dot" style="background: var(--green);"></div>
+      <div class="mvp-text">Failures are honest and readable <span>rdt task show &lt;id&gt; reveals full trace</span></div>
+    </div>
+  </div>
+
+  <div style="margin-top: 20px; background: var(--card); border: 1px solid rgba(16,185,129,0.3); border-radius: 10px; padding: 14px;">
+    <div style="font-size: 11px; font-weight: 600; color: var(--green); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">The three-command test</div>
+    <div style="font-family: var(--mono); font-size: 12px; color: #c4b5fd; line-height: 2;">rdt init<br>rdt status<br>rdt "fix the failing test in the fixture repo"</div>
+    <div style="font-size: 12px; color: var(--muted); margin-top: 8px;">If all three complete without errors and every §22 item passes — <strong style="color: var(--green);">MVP is done.</strong></div>
+  </div>
+
+  <div style="margin-top: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+    <div style="font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">After MVP — future phases only</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+      <span style="font-size:11px; padding: 3px 8px; background: var(--teal-dim); color: #5eead4; border-radius: 6px; border: 1px solid rgba(20,184,166,0.2);">TUI (after stable CLI)</span>
+      <span style="font-size:11px; padding: 3px 8px; background: var(--teal-dim); color: #5eead4; border-radius: 6px; border: 1px solid rgba(20,184,166,0.2);">Custom agents .agents/</span>
+      <span style="font-size:11px; padding: 3px 8px; background: var(--teal-dim); color: #5eead4; border-radius: 6px; border: 1px solid rgba(20,184,166,0.2);">Vector memory</span>
+      <span style="font-size:11px; padding: 3px 8px; background: var(--teal-dim); color: #5eead4; border-radius: 6px; border: 1px solid rgba(20,184,166,0.2);">Bounded swarm</span>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+const CHECKLIST_ITEMS = [
+  "Create clean repo structure",
+  "Add package.json",
+  "Add tsconfig.json",
+  "Add test framework",
+  "Add formatter/linter",
+  "Add CLI entrypoint",
+  "Implement rdt --help",
+  "Implement rdt init",
+  "Implement rdt status",
+  "Add config schema",
+  "Add project detector",
+  "Add repository scanner",
+  "Add ToolResult type",
+  "Implement file tools",
+  "Implement shell/test tools",
+  "Implement provider types",
+  "Implement mock provider",
+  "Implement OpenAI-compatible provider",
+  "Implement OpenRouter config path",
+  "Implement provider router",
+  "Add provider cooldown/quota tracking",
+  "Add token budget and truncation rules",
+  "Add baseline git status capture",
+  "Add rollback-on-failure path",
+  "Implement agent base contract",
+  "Implement file picker agent",
+  "Implement planner agent",
+  "Implement editor agent",
+  "Implement reviewer agent",
+  "Implement task state machine",
+  "Save task logs",
+  "Run fixture integration test",
+  "Run real smoke test"
+];
+
+let checked = JSON.parse(localStorage.getItem('rdt-checklist') || '{}');
+
+function buildChecklist() {
+  const c = document.getElementById('checklist-container');
+  CHECKLIST_ITEMS.forEach((item, i) => {
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;';
+    const isChecked = !!checked[i];
+    div.innerHTML = `
+      <div style="width:18px;height:18px;border-radius:4px;border:1.5px solid ${isChecked ? 'var(--green)' : 'rgba(139,92,246,0.4)'};background:${isChecked ? 'var(--green)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.15s;">
+        ${isChecked ? '<span style="color:white;font-size:11px;font-weight:700;">✓</span>' : ''}
+      </div>
+      <span style="font-size:13px;color:${isChecked ? 'var(--muted)' : 'var(--text)'};text-decoration:${isChecked ? 'line-through' : 'none'};transition:all 0.15s;">${item}</span>
+    `;
+    div.onclick = () => {
+      checked[i] = !checked[i];
+      localStorage.setItem('rdt-checklist', JSON.stringify(checked));
+      buildChecklist();
+      updateProgress();
+    };
+    c.appendChild(div);
+  });
+}
+
+function updateProgress() {
+  const total = CHECKLIST_ITEMS.length;
+  const done = Object.values(checked).filter(Boolean).length;
+  document.getElementById('prog-pct').textContent = `${done} / ${total} tasks`;
+  document.getElementById('prog-fill').style.width = `${(done / total) * 100}%`;
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  event.target.classList.add('active');
+}
+
+function togglePhase(card) {
+  card.classList.toggle('open');
+}
+
+function toggleSession(card) {
+  card.classList.toggle('open');
+}
+
+function toggleDone(e, btn) {
+  e.stopPropagation();
+  btn.classList.toggle('done');
+  if (btn.classList.contains('done')) {
+    btn.innerHTML = '<span style="color:white;font-size:10px;font-weight:700;">✓</span>';
+  } else {
+    btn.innerHTML = '';
+  }
+}
+
+function copyText(id) {
+  const text = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+
+buildChecklist();
+updateProgress();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.rdt/tasks/
+.rdt/cache/
+.rdt/logs/
+*.db
+.rdt/
+.env
+.DS_Store
