@@ -1,5 +1,5 @@
-import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { resolve, dirname, join } from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 
 import { createTaskState, transitionState, addTaskError, type TaskState, type TaskStatus } from './task-state';
@@ -21,6 +21,7 @@ import { ProviderStateStore } from '../storage/provider-state-store';
 import { TaskLogStore } from '../storage/task-log-store';
 import { gitDiffTool } from '../tools/git-diff';
 import { Sandbox } from '../tools/sandbox';
+import { testRunnerTool } from '../tools/test-runner';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -84,6 +85,7 @@ export class TaskRunner {
     const originalCwd = process.cwd();
     const sandbox = new Sandbox(this.config.projectRoot, state.id);
     let sandboxInitialized = false;
+    let originalBranch: string | null = null;
     let result: TaskResult;
 
     try {
@@ -97,6 +99,26 @@ export class TaskRunner {
           dirtyFiles: state.baselines?.dirtyFiles.length ?? 0,
         });
       });
+
+      // Setup Git feature branch if configured
+      if (this.config.rdtConfig?.runtime.git_feature_branch && state.baselines?.headHash) {
+        try {
+          originalBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+            cwd: this.config.projectRoot,
+            encoding: 'utf-8',
+          }).trim();
+
+          this.logger.info(`Creating Git feature branch 'rdt/task-${state.id}'...`);
+          execSync(`git checkout -b "rdt/task-${state.id}"`, {
+            cwd: this.config.projectRoot,
+            encoding: 'utf-8',
+          });
+          this.logger.info(`Switched to feature branch 'rdt/task-${state.id}'`);
+        } catch (err) {
+          this.logger.warn(`Failed to setup Git feature branch: ${err instanceof Error ? err.message : String(err)}`);
+          originalBranch = null;
+        }
+      }
 
       // Initialize isolated sandbox
       this.logger.info('Initializing isolated shadow sandbox...');
@@ -178,23 +200,35 @@ export class TaskRunner {
         this.logger.info(`Applied ${appliedFiles.length} file(s) back to host workspace.`);
       }
 
-      // Git Auto Commit if configured
-      if (this.config.rdtConfig?.runtime.git_auto_commit && state.baselines?.headHash && state.changedFiles.length > 0) {
+      // Git Auto Commit or Feature Branch Commit
+      const shouldCommit = this.config.rdtConfig?.runtime.git_auto_commit || originalBranch;
+      if (shouldCommit && state.baselines?.headHash && state.changedFiles.length > 0) {
         try {
-          this.logger.info('Performing Git auto-commit...');
+          this.logger.info('Performing Git commit...');
           for (const file of state.changedFiles) {
             spawnSync('git', ['add', file], { cwd: this.config.projectRoot });
           }
           const commitMsg = `rdt: ${state.request}`;
           const commitRes = spawnSync('git', ['commit', '-m', commitMsg], { cwd: this.config.projectRoot });
           if (commitRes.status === 0) {
-            this.logger.info('Git auto-commit succeeded');
+            this.logger.info('Git commit succeeded');
           } else {
-            this.logger.warn(`Git auto-commit failed with exit code ${commitRes.status}: ${commitRes.stderr?.toString()}`);
+            this.logger.warn(`Git commit failed with exit code ${commitRes.status}: ${commitRes.stderr?.toString()}`);
           }
         } catch (commitErr) {
           const errMsg = commitErr instanceof Error ? commitErr.message : String(commitErr);
-          this.logger.warn(`Git auto-commit failed: ${errMsg}`);
+          this.logger.warn(`Git commit failed: ${errMsg}`);
+        }
+      }
+
+      // Restore original branch if we switched to a feature branch
+      if (originalBranch) {
+        try {
+          this.logger.info(`Checking back out to original branch '${originalBranch}'...`);
+          execSync(`git checkout "${originalBranch}"`, { cwd: this.config.projectRoot, encoding: 'utf-8' });
+          this.logger.info(`Switched back to branch '${originalBranch}'. Changes are preserved on 'rdt/task-${state.id}'.`);
+        } catch (err) {
+          this.logger.warn(`Failed to checkout back to original branch '${originalBranch}': ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
@@ -207,6 +241,18 @@ export class TaskRunner {
       // Ensure host directory is restored on failure before executing failure handling
       process.chdir(originalCwd);
       result = await this.handleFailure(state, err);
+
+      // Restore Git branch and delete unused feature branch on failure
+      if (originalBranch) {
+        try {
+          this.logger.info(`Restoring original Git branch '${originalBranch}' after task failure...`);
+          execSync(`git checkout -f "${originalBranch}"`, { cwd: this.config.projectRoot, encoding: 'utf-8' });
+          execSync(`git branch -D "rdt/task-${state.id}"`, { cwd: this.config.projectRoot, encoding: 'utf-8' });
+          this.logger.info(`Deleted temporary feature branch 'rdt/task-${state.id}'`);
+        } catch (branchErr) {
+          this.logger.warn(`Failed to cleanup feature branch: ${branchErr instanceof Error ? branchErr.message : String(branchErr)}`);
+        }
+      }
     } finally {
       if (sandboxInitialized) {
         this.logger.info('Cleaning up shadow sandbox...');
@@ -402,30 +448,95 @@ export class TaskRunner {
       tools: [],
     };
 
-    const result = await editor.execute({
-      task: state,
-      plan: state.plan,
-      project: context,
-    }, editorConfig);
+    const mainSandboxPath = process.cwd();
+    this.logger.info('Starting parallel edit trials to evaluate best fix...');
 
-    if (result.success && result.result) {
-      const editResult = result.result as { changedFiles: string[]; diff: string; needsReview: boolean; summary: string };
+    // --- TRIAL 1 ---
+    const sandbox1 = new Sandbox(projectRoot, `${state.id}-trial-1`);
+    let trial1Passed = false;
+    let trial1Result: any = null;
+
+    try {
+      await sandbox1.init();
+      process.chdir(sandbox1.sandboxPath);
+      this.logger.info(`Running Edit Trial 1 in: ${sandbox1.sandboxPath}`);
+      const res = await editor.execute({ task: state, plan: state.plan, project: context }, editorConfig);
+      if (res.success && res.result) {
+        trial1Result = res.result;
+        const testRes = await testRunnerTool.execute({});
+        trial1Passed = testRes.success && (testRes.data?.passed ?? false);
+        this.logger.info(`Trial 1 test result: ${trial1Passed ? 'PASSED' : 'FAILED'}`);
+      }
+    } catch (err) {
+      this.logger.warn('Edit Trial 1 failed:', { error: err instanceof Error ? err.message : String(err) });
+    }
+
+    // --- TRIAL 2 ---
+    const sandbox2 = new Sandbox(projectRoot, `${state.id}-trial-2`);
+    let trial2Passed = false;
+    let trial2Result: any = null;
+
+    try {
+      await sandbox2.init();
+      process.chdir(sandbox2.sandboxPath);
+      this.logger.info(`Running Edit Trial 2 in: ${sandbox2.sandboxPath}`);
+      const res = await editor.execute({ task: state, plan: state.plan, project: context }, editorConfig);
+      if (res.success && res.result) {
+        trial2Result = res.result;
+        const testRes = await testRunnerTool.execute({});
+        trial2Passed = testRes.success && (testRes.data?.passed ?? false);
+        this.logger.info(`Trial 2 test result: ${trial2Passed ? 'PASSED' : 'FAILED'}`);
+      }
+    } catch (err) {
+      this.logger.warn('Edit Trial 2 failed:', { error: err instanceof Error ? err.message : String(err) });
+    }
+
+    // Restore directory back to main sandbox
+    process.chdir(mainSandboxPath);
+
+    // Evaluate trials
+    let selectedSandbox = sandbox1;
+    let selectedResult = trial1Result;
+
+    if (trial2Passed && !trial1Passed) {
+      this.logger.info('Selecting Trial 2 (tests passed, Trial 1 failed)');
+      selectedSandbox = sandbox2;
+      selectedResult = trial2Result;
+    } else {
+      this.logger.info('Selecting Trial 1 as primary candidate');
+    }
+
+    if (selectedResult && selectedResult.changedFiles) {
+      const editResult = selectedResult as { changedFiles: string[]; diff: string; needsReview: boolean; summary: string };
       state.changedFiles = [...new Set([...state.changedFiles, ...editResult.changedFiles])];
 
-      // Track RDT-touched files for rollback
       if (state.baselines) {
         state.baselines.rdtTouchedFiles = [
           ...new Set([...state.baselines.rdtTouchedFiles, ...editResult.changedFiles]),
         ];
       }
 
-      this.logger.info('Edit complete', {
+      // Copy files to main sandbox
+      for (const file of editResult.changedFiles) {
+        const srcFile = join(selectedSandbox.sandboxPath, file);
+        const destFile = join(mainSandboxPath, file);
+        if (existsSync(srcFile)) {
+          mkdirSync(dirname(destFile), { recursive: true });
+          copyFileSync(srcFile, destFile);
+        }
+      }
+
+      this.logger.info('Selected trial edits applied to sandbox', {
         files: editResult.changedFiles.length,
         needsReview: editResult.needsReview,
       });
     } else {
-      addTaskError(state, 'Editor agent failed', 'EDITOR_FAILED', 'recoverable');
+      addTaskError(state, 'All editor trials failed', 'EDITOR_FAILED', 'recoverable');
     }
+
+    // Cleanup trial sandboxes
+    await sandbox1.destroy();
+    await sandbox2.destroy();
   }
 
   private async reviewChanges(state: TaskState): Promise<boolean> {

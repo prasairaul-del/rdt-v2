@@ -211,8 +211,9 @@ describe('TaskRunner Robustness & Failures', () => {
     
     // Editor should directly use openrouter-2 (without trying openrouter-1, since it is in cooldown)
     const editorUsage = result.state.providerUsage.filter(u => u.agentName === 'editor');
-    expect(editorUsage.length).toBe(1);
+    expect(editorUsage.length).toBe(2);
     expect(editorUsage[0].providerId).toBe('openrouter-2');
+    expect(editorUsage[1].providerId).toBe('openrouter-2');
 
     // Confirm that openrouter-1 state store entry is marked in cooldown
     const modelState = router.stateStore.get('openrouter-1', 'free');

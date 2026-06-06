@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { detectCommands } from '../project-context/command-detector';
 import type { Tool } from './types';
 import { successResult, errorResult } from '../core/result';
+import { wrapCommand } from './process-isolation';
 
 export interface TestRunnerInput {
   command?: string;
@@ -54,7 +55,8 @@ export const testRunnerTool: Tool<TestRunnerInput, TestRunnerOutput> = {
       }
 
       try {
-        const stdout = execSync(command, {
+        const isolatedCommand = wrapCommand(command, process.cwd());
+        const stdout = execSync(isolatedCommand, {
           encoding: 'utf-8',
           timeout,
           maxBuffer: 10 * 1024 * 1024,

@@ -19,6 +19,7 @@ export function createDefaultConfig(): RdtConfig {
       rollback_on_failed_task: true,
       preserve_user_changes: true,
       git_auto_commit: false,
+      git_feature_branch: false,
     },
     context_budget: {
       default_max_input_tokens: 32_000,

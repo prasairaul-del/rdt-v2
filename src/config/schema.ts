@@ -25,6 +25,7 @@ export interface RuntimeConfig {
   rollback_on_failed_task: boolean;
   preserve_user_changes: boolean;
   git_auto_commit?: boolean;
+  git_feature_branch?: boolean;
 }
 
 export interface ContextBudgetConfig {

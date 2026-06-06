@@ -1,9 +1,14 @@
 node_modules/
 dist/
-.rdt/tasks/
-.rdt/cache/
-.rdt/logs/
-*.db
 .rdt/
+*.db
 .env
 .DS_Store
+
+# Test temp directories created by unit/integration tests
+tmp-test/
+tmp-test-*/
+tmp-int-*/
+
+# OS artifacts
+Thumbs.db

@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import type { Tool } from './types';
 import { successResult, errorResult } from '../core/result';
+import { wrapCommand } from './process-isolation';
 
 export interface RunShellInput {
   command: string;
@@ -95,7 +96,8 @@ export const runShellTool: Tool<RunShellInput, RunShellOutput> = {
     }
 
     try {
-      const stdout = execSync(input.command, {
+      const isolatedCommand = wrapCommand(input.command, process.cwd());
+      const stdout = execSync(isolatedCommand, {
         encoding: 'utf-8',
         timeout,
         maxBuffer: 10 * 1024 * 1024,

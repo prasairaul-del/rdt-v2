@@ -1,0 +1,56 @@
+{
+  "name": "rdt-v2-vscode",
+  "displayName": "RDT-v2 AI Coding Agent",
+  "description": "Interactive glassmorphic AI Coding Agent panel inside VS Code",
+  "version": "0.1.0",
+  "publisher": "prasairaul-del",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "rdt-sidebar-container",
+          "title": "RDT-v2",
+          "icon": "$(terminal)"
+        }
+      ]
+    },
+    "views": {
+      "rdt-sidebar-container": [
+        {
+          "type": "webview",
+          "id": "rdt-webview-panel",
+          "name": "RDT-v2 Console",
+          "icon": "$(terminal)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "rdt-v2.openDashboard",
+        "title": "RDT-v2: Open Dashboard",
+        "category": "RDT-v2"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
