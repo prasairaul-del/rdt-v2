@@ -11,7 +11,7 @@ rdt "fix the failing test in the fixture repo"
 
 ## Setup Commands
 - Install: `bun install`
-- Run tests: `bun run test` (227 tests across 11 suites)
+- Run tests: `bun run test` (237 tests across 11 suites)
 - Typecheck: `bun run typecheck`
 - Lint: `bun run lint`
 - Build: `bun run build`
@@ -26,7 +26,7 @@ rdt "fix the failing test in the fixture repo"
 - Prefer patches over full-file rewrites
 
 ## Important Files
-- `src/cli/index.ts` — CLI entrypoint with 5 commands (init, status, run, providers, dashboard)
+- `src/cli/index.ts` — CLI entrypoint with 7 commands (init, status, run, providers, dashboard, explain, undo)
 - `src/cli/commands/dashboard.ts` — CLI Command action and API endpoints (GET status, files, POST tasks)
 - `src/cli/dashboard/index.html` — Glassmorphic SPA Dashboard Frontend
 - `src/core/task-runner.ts` — 13-state deterministic task state machine with Sandbox CWD redirection
