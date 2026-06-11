@@ -2,6 +2,8 @@ import type { CompletionMessage } from '../providers/types';
 import type { ProviderRouter } from '../router/provider-router';
 import { gitDiffTool } from '../tools/git-diff';
 import { testRunnerTool } from '../tools/test-runner';
+import { safeParseJson } from '../utils/json';
+import { ReviewResultSchema } from './schemas';
 import type { AgentInput, AgentOutput, ReviewResult } from './types';
 
 export interface ReviewerAgentConfig {
@@ -9,40 +11,6 @@ export interface ReviewerAgentConfig {
   policyName: string;
   /** Explicit working directory for tool operations (avoids process.cwd() dependency) */
   cwd?: string;
-}
-
-/**
- * Robust JSON extraction from LLM output.
- * Handles markdown code fences, leading text, and nested braces.
- */
-function safeParseJson<T>(text: string): T | null {
-  const stripped = text
-    .replace(/^```(?:json)?\s*/m, '')
-    .replace(/```\s*$/m, '')
-    .trim();
-  try {
-    return JSON.parse(stripped) as T;
-  } catch {
-    /* continue */
-  }
-  const first = stripped.indexOf('{');
-  const last = stripped.lastIndexOf('}');
-  if (first !== -1 && last > first) {
-    try {
-      return JSON.parse(stripped.slice(first, last + 1)) as T;
-    } catch {
-      /* continue */
-    }
-  }
-  const match = text.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      return JSON.parse(match[0]) as T;
-    } catch {
-      /* fall through */
-    }
-  }
-  return null;
 }
 
 /**
@@ -265,19 +233,20 @@ Typecheck passed: ${typecheckPassed}`,
             durationMs: successAttempt?.durationMs ?? 0,
           });
 
-          // Fix #2 — robust JSON extraction
-          const parsed = safeParseJson<{
-            approved: boolean;
-            summary?: string;
-            issues?: string[];
-            requiredFixes?: string[];
-          }>(content);
+          // Fix #2 — robust JSON extraction and Zod validation
+          const parsed = safeParseJson<unknown>(content);
           if (parsed !== null) {
-            approved = parsed.approved;
-            providerMadeDecision = true;
-            if (parsed.issues) issues.push(...parsed.issues);
-            if (parsed.requiredFixes)
-              requiredFixes.push(...parsed.requiredFixes);
+            const validation = ReviewResultSchema.safeParse(parsed);
+            if (validation.success) {
+              approved = validation.data.approved;
+              providerMadeDecision = true;
+              
+              const parsedIssues = validation.data.issues ?? [];
+              const parsedFixes = validation.data.requiredFixes ?? [];
+              
+              issues.push(...parsedIssues);
+              requiredFixes.push(...parsedFixes);
+            }
           }
         }
       } catch {

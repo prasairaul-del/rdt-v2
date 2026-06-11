@@ -5,6 +5,8 @@ import { gitDiffTool } from '../tools/git-diff';
 import { readFileTool } from '../tools/read-file';
 import type { Tool } from '../tools/types';
 import { writeFileTool } from '../tools/write-file';
+import { safeParseJson } from '../utils/json';
+import { EditResultSchema } from './schemas';
 import type { AgentInput, AgentOutput, EditResult } from './types';
 
 export interface EditorAgentConfig {
@@ -13,48 +15,6 @@ export interface EditorAgentConfig {
   tools: Tool[];
   /** Explicit working directory for file operations (avoids process.cwd() dependency) */
   cwd?: string;
-}
-
-/**
- * Robust JSON extraction from LLM output.
- * Handles markdown code fences, leading text, and nested braces.
- */
-function safeParseJson<T>(text: string): T | null {
-  // Strip markdown code fences if present
-  const stripped = text
-    .replace(/^```(?:json)?\s*/m, '')
-    .replace(/```\s*$/m, '')
-    .trim();
-
-  // Try full stripped string first
-  try {
-    return JSON.parse(stripped) as T;
-  } catch {
-    /* continue */
-  }
-
-  // Try outermost {...} block (non-greedy from first { to last })
-  const first = stripped.indexOf('{');
-  const last = stripped.lastIndexOf('}');
-  if (first !== -1 && last > first) {
-    try {
-      return JSON.parse(stripped.slice(first, last + 1)) as T;
-    } catch {
-      /* continue */
-    }
-  }
-
-  // Greedy fallback
-  const match = text.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      return JSON.parse(match[0]) as T;
-    } catch {
-      /* fall through */
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -213,11 +173,10 @@ ${fileContext}`,
           });
 
           // Fix #2 — robust JSON extraction (handles markdown fences + nested JSON)
-          const parsed = safeParseJson<{
-            summary?: string;
-            edits?: Array<{ file: string; patch?: string; content?: string }>;
-          }>(content);
-          if (parsed?.edits && parsed.edits.length > 0) {
+          const parsedJson = safeParseJson<unknown>(content);
+          const validationResult = EditResultSchema.safeParse(parsedJson);
+          if (validationResult.success && validationResult.data.edits && validationResult.data.edits.length > 0) {
+            const parsed = validationResult.data;
             for (const edit of parsed.edits) {
               if (edit.patch) {
                 const applyStart = performance.now();
@@ -269,9 +228,13 @@ ${fileContext}`,
                 }
               }
             }
-          } else if (!parsed) {
+          } else if (!validationResult.success) {
             errors.push(
-              'LLM response did not contain parseable JSON edit instructions',
+              `LLM response validation failed: ${validationResult.error.message}`,
+            );
+          } else if (!validationResult.data.edits || validationResult.data.edits.length === 0) {
+            errors.push(
+              'LLM response did not contain edit instructions',
             );
           }
 
