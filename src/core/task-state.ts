@@ -1,135 +1,10 @@
-/**
- * Task state machine for RDT v2.
- *
- * States (per spec §13):
- *   CREATED -> CAPTURING_BASELINE -> LOADING_CONTEXT -> SCANNING_REPO
- *   -> SELECTING_FILES -> PLANNING -> EDITING -> REVIEWING
- *   -> FIXING (optional loop, max 3 passes) -> FINALIZING -> DONE
- *
- * Failure path:
- *   any state -> FAILED -> ROLLING_BACK -> FAILED_CLEAN | FAILED_DIRTY
- */
+import {
+  type ErrorSeverity,
+  type TaskStatus,
+  type TaskState,
+} from './runner/types';
 
-export type TaskStatus =
-  | 'created'
-  | 'capturing_baseline'
-  | 'loading_context'
-  | 'scanning_repo'
-  | 'selecting_files'
-  | 'planning'
-  | 'editing'
-  | 'reviewing'
-  | 'fixing'
-  | 'finalizing'
-  | 'done'
-  | 'failed'
-  | 'rolling_back'
-  | 'failed_clean'
-  | 'failed_dirty';
-
-/** Transitions that are valid from each state. */
-const TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  created: ['capturing_baseline', 'failed'],
-  capturing_baseline: ['loading_context', 'failed'],
-  loading_context: ['scanning_repo', 'failed'],
-  scanning_repo: ['selecting_files', 'failed'],
-  selecting_files: ['planning', 'failed'],
-  planning: ['editing', 'failed'],
-  editing: ['reviewing', 'failed', 'done'],
-  reviewing: ['fixing', 'finalizing', 'failed'],
-  fixing: ['editing', 'failed', 'done'],
-  finalizing: ['done', 'failed'],
-  done: [],
-  failed: ['rolling_back', 'failed_clean', 'failed_dirty'],
-  rolling_back: ['failed_clean', 'failed_dirty'],
-  failed_clean: [],
-  failed_dirty: [],
-};
-
-/** Error severity for determining failure path. */
-export type ErrorSeverity = 'fatal' | 'recoverable' | 'warning';
-
-export interface TaskError {
-  message: string;
-  code: string;
-  severity: ErrorSeverity;
-  state: TaskStatus;
-  timestamp: string;
-}
-
-export interface TaskBaselines {
-  headHash?: string;
-  dirtyFiles: string[];
-  rdtTouchedFiles: string[];
-}
-
-export interface ReviewResult {
-  approved: boolean;
-  issues: string[];
-  testsRun: Array<{
-    command: string;
-    passed: boolean;
-    outputSummary: string;
-  }>;
-  requiredFixes: string[];
-  finalSummary: string;
-}
-
-export interface TaskState {
-  id: string;
-  request: string;
-  status: TaskStatus;
-  createdAt: string;
-  updatedAt: string;
-  startedAt?: string;
-  finishedAt?: string;
-
-  // Configuration
-  maxEditPasses: number;
-  editPass: number;
-  rollbackOnFailed: boolean;
-
-  // Errors
-  errors: TaskError[];
-
-  // Baselines
-  baselines?: TaskBaselines;
-
-  // Accumulated results
-  selectedFilesCount?: number;
-  selectedFiles?: Array<{
-    path: string;
-    reason: string;
-    priority: 'high' | 'medium' | 'low';
-  }>;
-  planSummary?: string;
-  plan?: {
-    summary: string;
-    steps: Array<{
-      id: string;
-      description: string;
-      targetFiles: string[];
-      risk: 'low' | 'medium' | 'high';
-    }>;
-    testPlan: string[];
-    risks: string[];
-  };
-  changedFiles: string[];
-  diff?: string;
-  testResults?: string[];
-  reviewResults?: ReviewResult[];
-
-  // Provider usage
-  providerUsage: Array<{
-    agentName: string;
-    providerId: string;
-    modelId: string;
-    promptTokens?: number;
-    completionTokens?: number;
-    durationMs: number;
-    error?: string;
-  }>;
-}
+export { type TaskBaselines, type TaskState, type TaskStatus } from './runner/types';
 
 export function createTaskState(
   request: string,
@@ -156,35 +31,7 @@ export function createTaskState(
 }
 
 /**
- * Transition the state machine to a new state.
- * Throws if the transition is not valid.
- */
-export function transitionState(state: TaskState, to: TaskStatus): void {
-  const allowed = TRANSITIONS[state.status];
-  if (!allowed.includes(to)) {
-    throw new Error(
-      `Invalid state transition: ${state.status} -> ${to}. ` +
-        `Allowed transitions from ${state.status}: [${allowed.join(', ')}]`,
-    );
-  }
-
-  // Track timing
-  if (
-    to === 'failed' ||
-    to === 'failed_clean' ||
-    to === 'failed_dirty' ||
-    to === 'done'
-  ) {
-    state.finishedAt = new Date().toISOString();
-  }
-
-  state.status = to;
-  state.updatedAt = new Date().toISOString();
-}
-
-/**
  * Add an error to the task state.
- * For fatal errors, transitions to 'failed' automatically.
  */
 export function addTaskError(
   state: TaskState,
@@ -208,6 +55,8 @@ export function addTaskError(
     state.status !== 'failed_clean' &&
     state.status !== 'failed_dirty'
   ) {
-    transitionState(state, 'failed');
+    // Timing and status update
+    state.status = 'failed';
+    state.finishedAt = new Date().toISOString();
   }
 }

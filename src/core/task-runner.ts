@@ -1,56 +1,34 @@
-import { execSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-import type { AgentName } from '../agents/agent-registry';
 import { agentRegistry } from '../agents/agent-registry';
 import type { EditorAgentConfig } from '../agents/editor-agent';
 import type { PlannerAgentConfig } from '../agents/planner-agent';
 import type { ReviewerAgentConfig } from '../agents/reviewer-agent';
-import { resolveConfigPath } from '../config/load-config';
-import type { RdtConfig } from '../config/schema';
 import { ProviderRouter } from '../router/provider-router';
 import { ProviderStateStore } from '../storage/provider-state-store';
 import { TaskLogStore } from '../storage/task-log-store';
 import { gitDiffTool } from '../tools/git-diff';
-import { Sandbox } from '../tools/sandbox';
-import { testRunnerTool } from '../tools/test-runner';
 import { globalEventBus } from './events';
 import { TaskLogger } from './logger';
 import { ExecutionContext } from './runner/execution-context';
 import { StateMachine } from './runner/state-machine';
 import {
   type TaskState,
-  type TaskStatus,
   addTaskError,
   createTaskState,
-  transitionState,
 } from './task-state';
-
-// ── Types ────────────────────────────────────────────────────────
-
-export interface TaskRunnerConfig {
-  projectRoot: string;
-  rdtConfig?: RdtConfig;
-  providerRouter?: ProviderRouter;
-  stateStore?: ProviderStateStore;
-  logStore?: TaskLogStore;
-  logger?: TaskLogger;
-  checkCancellation?: () => boolean;
-}
-
-export interface TaskResult {
-  success: boolean;
-  taskId: string;
-  state: TaskState;
-  summary: string;
-  diff?: string;
-  error?: string;
-  providerSummary: string;
-}
+import {
+  type TaskRunnerConfig,
+  type TaskResult,
+} from './runner/types';
 
 // ── Task Runner ──────────────────────────────────────────────────
 
+/**
+ * TaskRunner orchestrates the execution of a coding task.
+ * It coordinates agents, manages state transitions, and project context.
+ */
 export class TaskRunner {
   private config: TaskRunnerConfig;
   private router?: ProviderRouter;
@@ -99,14 +77,11 @@ export class TaskRunner {
     globalEventBus.emit('task:created', state.id, { request });
 
     const stateMachine = new StateMachine(state, this.logger, this.config.checkCancellation);
-    const sandbox = new Sandbox(this.config.projectRoot, state.id);
-    let sandboxInitialized = false;
-    let originalBranch: string | null = null;
+    let sandboxCwd: string | undefined;
     let result: TaskResult;
 
     try {
       // ── STEP 1: CAPTURE BASELINE ────────────────────────────────
-      // Captured on host workspace first
       await stateMachine.executeStep('capturing_baseline', async () => {
         this.logger.info('Capturing git baseline...');
         state.baselines = await this.executionContext.captureBaseline();
@@ -117,39 +92,10 @@ export class TaskRunner {
       });
 
       // Setup Git feature branch if configured
-      if (
-        this.config.rdtConfig?.runtime.git_feature_branch &&
-        state.baselines?.headHash
-      ) {
-        try {
-          originalBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-            cwd: this.config.projectRoot,
-            encoding: 'utf-8',
-          }).trim();
+      await this.executionContext.setupFeatureBranch(state);
 
-          this.logger.info(
-            `Creating Git feature branch 'rdt/task-${state.id}'...`,
-          );
-          execSync(`git checkout -b "rdt/task-${state.id}"`, {
-            cwd: this.config.projectRoot,
-            encoding: 'utf-8',
-          });
-          this.logger.info(`Switched to feature branch 'rdt/task-${state.id}'`);
-        } catch (err) {
-          this.logger.warn(
-            `Failed to setup Git feature branch: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          originalBranch = null;
-        }
-      }
-
-      // Initialize isolated sandbox — we pass its path as cwd to all agents,
-      // so we NEVER call process.chdir() which would be a process-global side effect.
-      this.logger.info('Initializing isolated shadow sandbox...');
-      await sandbox.init();
-      sandboxInitialized = true;
-      const sandboxCwd = sandbox.sandboxPath;
-      this.logger.info(`Sandbox active. Temporary workspace: ${sandboxCwd}`);
+      // Initialize isolated sandbox
+      sandboxCwd = await this.executionContext.initSandbox(state.id);
 
       // ── STEP 2: LOAD CONTEXT ────────────────────────────────────
       await stateMachine.executeStep('loading_context', async () => {
@@ -189,20 +135,20 @@ export class TaskRunner {
       while (state.editPass < state.maxEditPasses && !approved) {
         state.editPass++;
 
-        // EDIT — pass sandboxCwd so agents never rely on process.cwd()
+        // EDIT
         await stateMachine.executeStep('editing', async () => {
           this.logger.info(
             `Edit pass ${state.editPass}/${state.maxEditPasses}...`,
           );
-          await this.editFiles(state, sandboxCwd);
+          await this.editFiles(state, sandboxCwd!);
         });
 
-        // REVIEW — pass sandboxCwd
+        // REVIEW
         await stateMachine.executeStep('reviewing', async () => {
           this.logger.info(
             `Reviewing pass ${state.editPass}/${state.maxEditPasses}...`,
           );
-          approved = await this.reviewChanges(state, sandboxCwd);
+          approved = await this.reviewChanges(state, sandboxCwd!);
         });
 
         // Check if we need another pass
@@ -224,77 +170,17 @@ export class TaskRunner {
       // ── STEP 9: FINALIZE ────────────────────────────────────────
       await stateMachine.executeStep('finalizing', async () => {
         this.logger.info('Finalizing task...');
-        await this.finalize(state, sandboxCwd);
+        await this.finalize(state, sandboxCwd!);
       });
 
-      // Directory was never changed — no restore needed.
+      // Apply sandboxed edits back to host workspace
+      await this.executionContext.applySandboxChanges(state.changedFiles);
 
-      if (sandboxInitialized) {
-        this.logger.info('Applying sandboxed edits back to host workspace...');
-        const appliedFiles = await sandbox.applyToHost(state.changedFiles);
-        this.logger.info(
-          `Applied ${appliedFiles.length} file(s) back to host workspace.`,
-        );
-      }
+      // Git Auto Commit or Feature Branch Commit
+      await this.executionContext.commitChanges(state);
 
-      // Git Auto Commit or Feature Branch Commit — enriched message (#11)
-      const shouldCommit =
-        this.config.rdtConfig?.runtime.git_auto_commit || originalBranch;
-      if (
-        shouldCommit &&
-        state.baselines?.headHash &&
-        state.changedFiles.length > 0
-      ) {
-        try {
-          this.logger.info('Performing Git commit...');
-          for (const file of state.changedFiles) {
-            spawnSync('git', ['add', file], { cwd: this.config.projectRoot });
-          }
-          const fileList =
-            state.changedFiles.slice(0, 5).join(', ') +
-            (state.changedFiles.length > 5
-              ? ` (+${state.changedFiles.length - 5} more)`
-              : '');
-          const planLine = state.planSummary
-            ? `\nPlan: ${state.planSummary}`
-            : '';
-          const commitMsg = `rdt [${state.id}]: ${state.request}${planLine}\nFiles: ${fileList}`;
-          const commitRes = spawnSync('git', ['commit', '-m', commitMsg], {
-            cwd: this.config.projectRoot,
-          });
-          if (commitRes.status === 0) {
-            this.logger.info('Git commit succeeded');
-          } else {
-            this.logger.warn(
-              `Git commit failed with exit code ${commitRes.status}: ${commitRes.stderr?.toString()}`,
-            );
-          }
-        } catch (commitErr) {
-          const errMsg =
-            commitErr instanceof Error ? commitErr.message : String(commitErr);
-          this.logger.warn(`Git commit failed: ${errMsg}`);
-        }
-      }
-
-      // Restore original branch if we switched to a feature branch
-      if (originalBranch) {
-        try {
-          this.logger.info(
-            `Checking back out to original branch '${originalBranch}'...`,
-          );
-          execSync(`git checkout "${originalBranch}"`, {
-            cwd: this.config.projectRoot,
-            encoding: 'utf-8',
-          });
-          this.logger.info(
-            `Switched back to branch '${originalBranch}'. Changes are preserved on 'rdt/task-${state.id}'.`,
-          );
-        } catch (err) {
-          this.logger.warn(
-            `Failed to checkout back to original branch '${originalBranch}': ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
+      // Restore original branch if we used a feature branch
+      await this.executionContext.restoreBranch(state);
 
       // ── SUCCESS ─────────────────────────────────────────────────
       stateMachine.transition('done');
@@ -302,37 +188,12 @@ export class TaskRunner {
 
       result = this.buildResult(state, true);
     } catch (err) {
-      // Directory is never changed now — no restore needed on failure either.
       result = await this.handleFailure(state, stateMachine, err);
 
       // Restore Git branch and delete unused feature branch on failure
-      if (originalBranch) {
-        try {
-          this.logger.info(
-            `Restoring original Git branch '${originalBranch}' after task failure...`,
-          );
-          execSync(`git checkout -f "${originalBranch}"`, {
-            cwd: this.config.projectRoot,
-            encoding: 'utf-8',
-          });
-          execSync(`git branch -D "rdt/task-${state.id}"`, {
-            cwd: this.config.projectRoot,
-            encoding: 'utf-8',
-          });
-          this.logger.info(
-            `Deleted temporary feature branch 'rdt/task-${state.id}'`,
-          );
-        } catch (branchErr) {
-          this.logger.warn(
-            `Failed to cleanup feature branch: ${branchErr instanceof Error ? branchErr.message : String(branchErr)}`,
-          );
-        }
-      }
+      await this.executionContext.restoreBranch(state, true);
     } finally {
-      if (sandboxInitialized) {
-        this.logger.info('Cleaning up shadow sandbox...');
-        await sandbox.destroy();
-      }
+      await this.executionContext.destroySandbox();
     }
 
     return result;
@@ -409,9 +270,8 @@ export class TaskRunner {
       return;
     }
 
-    const router = this.router;
     const plannerConfig: PlannerAgentConfig = {
-      router: router ?? ({} as ProviderRouter),
+      router: this.router ?? ({} as ProviderRouter),
       policyName:
         this.config.rdtConfig?.agents?.planner?.model_policy ??
         'smart_reasoning',
@@ -456,9 +316,8 @@ export class TaskRunner {
 
   private async editFiles(
     state: TaskState,
-    sandboxCwd = process.cwd(),
+    sandboxCwd: string,
   ): Promise<void> {
-    const projectRoot = this.config.projectRoot;
     const context = this.executionContext.buildAgentContext(state.request);
 
     const editor = agentRegistry.get('editor');
@@ -475,86 +334,15 @@ export class TaskRunner {
       cwd: sandboxCwd,
     };
 
-    // sandboxCwd is passed in as a parameter — no global state needed
+    this.logger.info('Starting edit trial to generate changes...');
 
-    this.logger.info('Starting parallel edit trials to evaluate best fix...');
+    const res = await editor.execute(
+      { task: state, plan: state.plan, project: context },
+      editorConfig,
+    );
 
-    // --- TRIAL 1 ---
-    const sandbox1 = new Sandbox(projectRoot, `${state.id}-trial-1`);
-    let trial1Passed = false;
-    let trial1Result: any = null;
-
-    try {
-      await sandbox1.init();
-      // Pass trial sandbox path as cwd — no process.chdir() needed
-      const trial1Config = { ...editorConfig, cwd: sandbox1.sandboxPath };
-      this.logger.info(`Running Edit Trial 1 in: ${sandbox1.sandboxPath}`);
-      const res = await editor.execute(
-        { task: state, plan: state.plan, project: context },
-        trial1Config,
-      );
-      if (res.success && res.result) {
-        trial1Result = res.result;
-        const testRes = await testRunnerTool.execute({
-          cwd: sandbox1.sandboxPath,
-        });
-        trial1Passed = testRes.success && (testRes.data?.passed ?? false);
-        this.logger.info(
-          `Trial 1 test result: ${trial1Passed ? 'PASSED' : 'FAILED'}`,
-        );
-      }
-    } catch (err) {
-      this.logger.warn('Edit Trial 1 failed:', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    // --- TRIAL 2 ---
-    const sandbox2 = new Sandbox(projectRoot, `${state.id}-trial-2`);
-    let trial2Passed = false;
-    let trial2Result: any = null;
-
-    try {
-      await sandbox2.init();
-      // Pass trial sandbox path as cwd — no process.chdir() needed
-      const trial2Config = { ...editorConfig, cwd: sandbox2.sandboxPath };
-      this.logger.info(`Running Edit Trial 2 in: ${sandbox2.sandboxPath}`);
-      const res = await editor.execute(
-        { task: state, plan: state.plan, project: context },
-        trial2Config,
-      );
-      if (res.success && res.result) {
-        trial2Result = res.result;
-        const testRes = await testRunnerTool.execute({
-          cwd: sandbox2.sandboxPath,
-        });
-        trial2Passed = testRes.success && (testRes.data?.passed ?? false);
-        this.logger.info(
-          `Trial 2 test result: ${trial2Passed ? 'PASSED' : 'FAILED'}`,
-        );
-      }
-    } catch (err) {
-      this.logger.warn('Edit Trial 2 failed:', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    // No process.chdir() needed — cwd was passed explicitly to all tools
-
-    // Evaluate trials
-    let selectedSandbox = sandbox1;
-    let selectedResult = trial1Result;
-
-    if (trial2Passed && !trial1Passed) {
-      this.logger.info('Selecting Trial 2 (tests passed, Trial 1 failed)');
-      selectedSandbox = sandbox2;
-      selectedResult = trial2Result;
-    } else {
-      this.logger.info('Selecting Trial 1 as primary candidate');
-    }
-
-    if (selectedResult?.changedFiles) {
-      const editResult = selectedResult as {
+    if (res.success && res.result) {
+      const editResult = res.result as {
         changedFiles: string[];
         diff: string;
         needsReview: boolean;
@@ -573,37 +361,23 @@ export class TaskRunner {
         ];
       }
 
-      // Copy files from winning trial into main sandbox
-      for (const file of editResult.changedFiles) {
-        const srcFile = join(selectedSandbox.sandboxPath, file);
-        const destFile = join(sandboxCwd, file);
-        if (existsSync(srcFile)) {
-          mkdirSync(dirname(destFile), { recursive: true });
-          copyFileSync(srcFile, destFile);
-        }
-      }
-
-      this.logger.info('Selected trial edits applied to sandbox', {
+      this.logger.info('Edits applied to sandbox', {
         files: editResult.changedFiles.length,
         needsReview: editResult.needsReview,
       });
     } else {
       addTaskError(
         state,
-        'All editor trials failed',
+        'Editor agent failed',
         'EDITOR_FAILED',
         'recoverable',
       );
     }
-
-    // Cleanup trial sandboxes
-    await sandbox1.destroy();
-    await sandbox2.destroy();
   }
 
   private async reviewChanges(
     state: TaskState,
-    sandboxCwd = process.cwd(),
+    sandboxCwd: string,
   ): Promise<boolean> {
     const context = this.executionContext.buildAgentContext(state.request);
 
@@ -640,7 +414,6 @@ export class TaskRunner {
     if (result.success && result.result) {
       const review = result.result as any;
 
-      // Save review results onto the state for dynamic agent feedback loops
       if (!state.reviewResults) {
         state.reviewResults = [];
       }
@@ -669,15 +442,13 @@ export class TaskRunner {
 
   private async finalize(
     state: TaskState,
-    sandboxCwd = process.cwd(),
+    sandboxCwd: string,
   ): Promise<void> {
-    // Get final diff from sandbox explicitly
     const diffResult = await gitDiffTool.execute({ cwd: sandboxCwd });
     if (diffResult.success && diffResult.data) {
       state.diff = diffResult.data.diff;
     }
 
-    // Save task log (includes diff — fix #3)
     await this.saveTaskLog(state);
   }
 
@@ -692,13 +463,12 @@ export class TaskRunner {
     this.logger.error(`Task failed: ${message}`);
     globalEventBus.emitError(state.id, message, 'TASK_FAILURE');
 
-    // Ensure the error is recorded on the state (which auto-transitions to 'failed' if needed)
     if (!state.errors.some((e) => e.message === message)) {
       const code =
         err instanceof Error && 'code' in err
           ? (err as any).code
           : 'TASK_FAILURE';
-      addTaskError(state, message, code, 'fatal');
+      stateMachine.addError(message, code, 'fatal');
     }
 
     // Rollback if configured
@@ -706,7 +476,10 @@ export class TaskRunner {
       try {
         stateMachine.transition('rolling_back');
         this.logger.info('Rolling back RDT-touched files...');
-        await this.rollback(state);
+        
+        // Use ExecutionContext for rollback (via git checkout)
+        await this.executionContext.restoreBranch(state, true);
+        
         stateMachine.transition('failed_clean');
         this.logger.info('Rollback succeeded — state is FAILED_CLEAN');
       } catch (rollbackErr) {
@@ -718,42 +491,15 @@ export class TaskRunner {
         stateMachine.transition('failed_dirty');
       }
     } else if (state.rollbackOnFailed) {
-      // No files to rollback or no baseline
       stateMachine.transition('failed_clean');
     } else {
       stateMachine.transition('failed_dirty');
     }
 
-    // Save failed state
     await this.saveTaskLog(state);
-    // Save failed diff
     await this.saveFailedPatch(state);
 
     return this.buildResult(state, false, message);
-  }
-
-  private async rollback(state: TaskState): Promise<void> {
-    if (!state.baselines?.rdtTouchedFiles.length) return;
-    if (!state.baselines?.headHash) return;
-
-    const projectRoot = this.config.projectRoot;
-    const touched = state.baselines.rdtTouchedFiles;
-
-    // Restore each touched file from git
-    for (const file of touched) {
-      const filePath = resolve(projectRoot, file);
-      if (existsSync(filePath)) {
-        try {
-          execSync(`git checkout -- "${file}"`, {
-            cwd: projectRoot,
-            encoding: 'utf-8',
-          });
-          this.logger.debug(`Rolled back: ${file}`);
-        } catch {
-          this.logger.warn(`Could not rollback: ${file}`);
-        }
-      }
-    }
   }
 
   private async saveFailedPatch(state: TaskState): Promise<void> {
@@ -788,7 +534,7 @@ export class TaskRunner {
         selectedFiles: state.changedFiles,
         planSummary: state.planSummary,
         changedFiles: state.changedFiles,
-        diff: state.diff, // Fix #3 — persist diff
+        diff: state.diff,
         providersUsed: state.providerUsage.map(
           (p) => `${p.providerId}/${p.modelId}`,
         ),
@@ -796,7 +542,6 @@ export class TaskRunner {
         errorMessage: state.errors.map((e) => e.message).join('; '),
       });
 
-      // Write full textual execution logs to log file
       const logsDir = resolve(this.config.projectRoot, '.rdt', 'logs');
       if (!existsSync(logsDir)) {
         mkdirSync(logsDir, { recursive: true });
@@ -820,7 +565,6 @@ export class TaskRunner {
     const isFailedClean = state.status === 'failed_clean';
     const isFailedDirty = state.status === 'failed_dirty';
 
-    // Build provider summary
     const providerSummary =
       state.providerUsage.length > 0
         ? state.providerUsage
@@ -831,7 +575,6 @@ export class TaskRunner {
             .join('\n')
         : 'No provider calls recorded';
 
-    // Build summary text
     const summaryParts: string[] = [];
     if (success) {
       summaryParts.push('Task completed successfully');
@@ -853,7 +596,6 @@ export class TaskRunner {
       summaryParts.push(`Error: ${errorMessage}`);
     }
 
-    // Log provider usage
     for (const usage of state.providerUsage) {
       this.logger.info(
         `Provider: ${usage.agentName} -> ${usage.providerId}/${usage.modelId}`,

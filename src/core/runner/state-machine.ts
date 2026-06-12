@@ -4,8 +4,26 @@ import {
   type TaskState,
   type TaskStatus,
   addTaskError,
-  transitionState,
 } from '../task-state';
+
+/** Transitions that are valid from each state. */
+export const TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
+  created: ['capturing_baseline', 'failed'],
+  capturing_baseline: ['loading_context', 'failed'],
+  loading_context: ['scanning_repo', 'failed'],
+  scanning_repo: ['selecting_files', 'failed'],
+  selecting_files: ['planning', 'failed'],
+  planning: ['editing', 'failed'],
+  editing: ['reviewing', 'failed', 'done'],
+  reviewing: ['fixing', 'finalizing', 'failed'],
+  fixing: ['editing', 'failed', 'done'],
+  finalizing: ['done', 'failed'],
+  done: [],
+  failed: ['rolling_back', 'failed_clean', 'failed_dirty'],
+  rolling_back: ['failed_clean', 'failed_dirty'],
+  failed_clean: [],
+  failed_dirty: [],
+};
 
 /**
  * StateMachine handles task state transitions, events, and step execution.
@@ -31,10 +49,9 @@ export class StateMachine {
     const from = this.state.status;
     
     // Explicitly transition to target state
-    transitionState(this.state, targetState);
+    this.transition(targetState);
     
     this.logger.info(`Step: ${targetState}`);
-    globalEventBus.emitStateChange(this.state.id, from, targetState);
 
     try {
       await fn();
@@ -57,11 +74,33 @@ export class StateMachine {
   }
 
   /**
-   * Manually transition to a new state.
+   * Transition the state machine to a new state.
+   * Throws if the transition is not valid.
    */
   transition(to: TaskStatus): void {
     const from = this.state.status;
-    transitionState(this.state, to);
+    
+    const allowed = TRANSITIONS[from];
+    if (!allowed.includes(to)) {
+      throw new Error(
+        `Invalid state transition: ${from} -> ${to}. ` +
+          `Allowed transitions from ${from}: [${allowed.join(', ')}]`,
+      );
+    }
+
+    // Track timing
+    if (
+      to === 'failed' ||
+      to === 'failed_clean' ||
+      to === 'failed_dirty' ||
+      to === 'done'
+    ) {
+      this.state.finishedAt = new Date().toISOString();
+    }
+
+    this.state.status = to;
+    this.state.updatedAt = new Date().toISOString();
+
     globalEventBus.emitStateChange(this.state.id, from, to);
   }
 
@@ -70,6 +109,13 @@ export class StateMachine {
    */
   addError(message: string, code: string, severity: 'fatal' | 'recoverable' | 'warning' = 'recoverable'): void {
     addTaskError(this.state, message, code, severity);
+    
+    // Auto-transition for fatal errors handled by addTaskError
+    // But we might want to emit a state change event if it happened
+    if (severity === 'fatal' && this.state.status === 'failed') {
+      // It already transitioned in addTaskError, but we might want to log it
+      this.logger.error(`Fatal error in state ${this.state.status}: ${message}`);
+    }
   }
 
   /**
