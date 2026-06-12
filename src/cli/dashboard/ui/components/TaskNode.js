@@ -7,7 +7,7 @@ export function renderPipelineSteps(status) {
     { key: 'planning', label: 'Plan' },
     { key: 'editing', label: 'Edit' },
     { key: 'reviewing', label: 'Review' },
-    { key: 'finalizing', label: 'Finalize' }
+    { key: 'finalizing', label: 'Finalize' },
   ];
 
   let activeIndex = -1;
@@ -17,9 +17,9 @@ export function renderPipelineSteps(status) {
     activeIndex = steps.length;
   } else if (status.startsWith('failed')) {
     isFailed = true;
-    activeIndex = steps.length - 1; 
+    activeIndex = steps.length - 1;
   } else {
-    activeIndex = steps.findIndex(s => s.key === status);
+    activeIndex = steps.findIndex((s) => s.key === status);
   }
 
   let html = '';
@@ -46,7 +46,8 @@ export function renderPipelineSteps(status) {
       </div>
     `;
     if (i < steps.length - 1) {
-      const connClass = i < activeIndex ? 'passed' : i === activeIndex ? 'active' : '';
+      const connClass =
+        i < activeIndex ? 'passed' : i === activeIndex ? 'active' : '';
       html += `<div class="pipeline-connector ${connClass}"></div>`;
     }
   });

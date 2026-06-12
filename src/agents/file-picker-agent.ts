@@ -149,17 +149,23 @@ export async function filePickerAgent(
       try {
         const policy = config.policyName ?? 'cheap_fast';
         const fileListStr = knownFiles.slice(0, 300).join('\n');
-        const messages = [
-          {
-            role: 'system' as const,
-            content: `You are an AI file picker agent. Given a user request and a list of files in the project, identify which files are most relevant to inspect or edit to fulfill the request.
+        let systemPrompt = `You are an AI file picker agent. Given a user request and a list of files in the project, identify which files are most relevant to inspect or edit to fulfill the request.
 Return your response as a JSON object of this structure:
 {
   "selectedFiles": [
     { "path": "src/utils.ts", "reason": "matches user request", "priority": "high" }
   ]
 }
-You can choose "high", "medium", or "low" priority for each selected file. Only select up to 5-10 files.`,
+You can choose "high", "medium", or "low" priority for each selected file. Only select up to 5-10 files.`;
+
+        if (project.instructions.customInstructions) {
+          systemPrompt += `\n\nCustom Instructions:\n${project.instructions.customInstructions}`;
+        }
+
+        const messages = [
+          {
+            role: 'system' as const,
+            content: systemPrompt,
           },
           {
             role: 'user' as const,

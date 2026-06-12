@@ -14,20 +14,14 @@ export async function planStep(context: StepContext): Promise<void> {
 
   const planner = agentRegistry.get('planner');
   if (!planner) {
-    addTaskError(
-      state,
-      'Planner agent not found',
-      'AGENT_NOT_FOUND',
-      'fatal',
-    );
+    addTaskError(state, 'Planner agent not found', 'AGENT_NOT_FOUND', 'fatal');
     return;
   }
 
   const plannerConfig: PlannerAgentConfig = {
     router: router ?? ({} as ProviderRouter),
     policyName:
-      config.rdtConfig?.agents?.planner?.model_policy ??
-      'smart_reasoning',
+      config.rdtConfig?.agents?.planner?.model_policy ?? 'smart_reasoning',
     tools: [],
   };
 

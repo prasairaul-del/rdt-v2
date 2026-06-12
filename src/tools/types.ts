@@ -8,7 +8,10 @@ export type ToolName =
   | 'apply_patch'
   | 'git_diff'
   | 'run_shell'
-  | 'test_runner';
+  | 'test_runner'
+  | 'make_directory'
+  | 'delete_file'
+  | 'move_file';
 
 export interface Tool<Input = unknown, Output = unknown> {
   name: ToolName;

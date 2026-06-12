@@ -110,7 +110,7 @@ describe('Git Feature Branch Workflow', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Set default mock implementations
     vi.mocked(baselineStep).mockImplementation(async (context) => {
       context.state.baselines = {

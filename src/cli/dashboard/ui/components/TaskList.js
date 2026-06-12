@@ -1,4 +1,10 @@
-export function renderTaskList(container, tasks, selectedTaskId, selectTask, escapeHtml) {
+export function renderTaskList(
+  container,
+  tasks,
+  selectedTaskId,
+  selectTask,
+  escapeHtml,
+) {
   container.innerHTML = '';
 
   if (tasks.length === 0) {
@@ -11,7 +17,10 @@ export function renderTaskList(container, tasks, selectedTaskId, selectTask, esc
     item.className = `task-item ${task.id === selectedTaskId ? 'active' : ''}`;
     item.onclick = () => selectTask(task.id);
 
-    const timeStr = new Date(task.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = new Date(task.startedAt).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
     const requestEscaped = escapeHtml(task.request || 'Empty task request');
     const taskNum = tasks.length - idx;
     const shortId = task.id.replace('task_', '').substring(0, 8);

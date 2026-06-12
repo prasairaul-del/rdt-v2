@@ -121,10 +121,7 @@ export async function editorAgent(
           }
         }
 
-        const messages: CompletionMessage[] = [
-          {
-            role: 'system',
-            content: `You are a senior software engineer applying code changes using unified diff patches.
+        let systemPrompt = `You are a senior software engineer applying code changes using unified diff patches.
 Given a task request, implementation plan, file contents, and any previous review feedback or test failures, generate the unified diff patches needed.
 
 Project: ${project.project.name}
@@ -140,7 +137,16 @@ IMPORTANT: Each edit.patch MUST be a valid unified diff patch format. Ensure it 
 @@ -start,count +start,count @@
  <lines with leading space for context, - for removal, + for additions>
 
-Keep patches minimal, precise, and targeted. Prefer surgical changes over rewriting whole files.`,
+Keep patches minimal, precise, and targeted. Prefer surgical changes over rewriting whole files.`;
+
+        if (project.instructions.customInstructions) {
+          systemPrompt += `\n\nCustom Instructions:\n${project.instructions.customInstructions}`;
+        }
+
+        const messages: CompletionMessage[] = [
+          {
+            role: 'system',
+            content: systemPrompt,
           },
           {
             role: 'user',
@@ -175,7 +181,11 @@ ${fileContext}`,
           // Fix #2 — robust JSON extraction (handles markdown fences + nested JSON)
           const parsedJson = safeParseJson<unknown>(content);
           const validationResult = EditResultSchema.safeParse(parsedJson);
-          if (validationResult.success && validationResult.data.edits && validationResult.data.edits.length > 0) {
+          if (
+            validationResult.success &&
+            validationResult.data.edits &&
+            validationResult.data.edits.length > 0
+          ) {
             const parsed = validationResult.data;
             for (const edit of parsed.edits) {
               if (edit.patch) {
@@ -232,10 +242,11 @@ ${fileContext}`,
             errors.push(
               `LLM response validation failed: ${validationResult.error.message}`,
             );
-          } else if (!validationResult.data.edits || validationResult.data.edits.length === 0) {
-            errors.push(
-              'LLM response did not contain edit instructions',
-            );
+          } else if (
+            !validationResult.data.edits ||
+            validationResult.data.edits.length === 0
+          ) {
+            errors.push('LLM response did not contain edit instructions');
           }
 
           // Capture diff after edits

@@ -9,7 +9,8 @@ import type { StepContext } from '../types';
  * Returns true if approved, false otherwise.
  */
 export async function reviewStep(context: StepContext): Promise<boolean> {
-  const { state, executionContext, router, logger, config, sandboxCwd } = context;
+  const { state, executionContext, router, logger, config, sandboxCwd } =
+    context;
 
   if (!sandboxCwd) {
     throw new Error('Sandbox CWD is required for review step');
@@ -32,9 +33,9 @@ export async function reviewStep(context: StepContext): Promise<boolean> {
   const reviewerConfig: ReviewerAgentConfig = {
     router: router ?? ({} as ProviderRouter),
     policyName:
-      config.rdtConfig?.agents?.reviewer?.model_policy ??
-      'smart_reasoning',
+      config.rdtConfig?.agents?.reviewer?.model_policy ?? 'smart_reasoning',
     cwd: sandboxCwd,
+    logger,
   };
 
   const result = await reviewer.execute(
@@ -61,13 +62,10 @@ export async function reviewStep(context: StepContext): Promise<boolean> {
       }
     }
 
-    logger.info(
-      `Review: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}`,
-      {
-        issues: review.issues.length,
-        summary: review.finalSummary,
-      },
-    );
+    logger.info(`Review: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}`, {
+      issues: review.issues.length,
+      summary: review.finalSummary,
+    });
 
     return review.approved;
   }

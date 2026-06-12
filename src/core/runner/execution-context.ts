@@ -1,7 +1,10 @@
 import { execSync, spawnSync } from 'node:child_process';
 import { loadConfig } from '../../config/load-config';
 import type { RdtConfig } from '../../config/schema';
-import { buildContext, type TaskContext } from '../../project-context/context-builder';
+import {
+  buildContext,
+  type TaskContext,
+} from '../../project-context/context-builder';
 import { detectProject } from '../../project-context/detect-project';
 import { loadInstructions } from '../../project-context/load-instructions';
 import { scanRepo } from '../../project-context/repo-scanner';
@@ -76,10 +79,7 @@ export class ExecutionContext {
    * Setup Git feature branch if configured.
    */
   async setupFeatureBranch(state: TaskState): Promise<void> {
-    if (
-      this._config?.runtime.git_feature_branch &&
-      state.baselines?.headHash
-    ) {
+    if (this._config?.runtime.git_feature_branch && state.baselines?.headHash) {
       try {
         this._originalBranch = execSync('git rev-parse --abbrev-ref HEAD', {
           cwd: this.projectRoot,
@@ -112,11 +112,14 @@ export class ExecutionContext {
         this.logger.info(
           `Checking back out to original branch '${this._originalBranch}'...`,
         );
-        execSync(`git checkout ${force ? '-f ' : ''}"${this._originalBranch}"`, {
-          cwd: this.projectRoot,
-          encoding: 'utf-8',
-        });
-        
+        execSync(
+          `git checkout ${force ? '-f ' : ''}"${this._originalBranch}"`,
+          {
+            cwd: this.projectRoot,
+            encoding: 'utf-8',
+          },
+        );
+
         if (force) {
           // If forced (failure), delete the feature branch
           execSync(`git branch -D "rdt/task-${state.id}"`, {
@@ -145,7 +148,7 @@ export class ExecutionContext {
   async commitChanges(state: TaskState): Promise<void> {
     const shouldCommit =
       this._config?.runtime.git_auto_commit || this._originalBranch;
-    
+
     if (
       shouldCommit &&
       state.baselines?.headHash &&
@@ -156,7 +159,7 @@ export class ExecutionContext {
         for (const file of state.changedFiles) {
           spawnSync('git', ['add', file], { cwd: this.projectRoot });
         }
-        
+
         const fileList =
           state.changedFiles.slice(0, 5).join(', ') +
           (state.changedFiles.length > 5
@@ -166,11 +169,11 @@ export class ExecutionContext {
           ? `\nPlan: ${state.planSummary}`
           : '';
         const commitMsg = `rdt [${state.id}]: ${state.request}${planLine}\nFiles: ${fileList}`;
-        
+
         const commitRes = spawnSync('git', ['commit', '-m', commitMsg], {
           cwd: this.projectRoot,
         });
-        
+
         if (commitRes.status === 0) {
           this.logger.info('Git commit succeeded');
         } else {
@@ -193,7 +196,9 @@ export class ExecutionContext {
     this._sandbox = new Sandbox(this.projectRoot, taskId);
     this.logger.info('Initializing isolated shadow sandbox...');
     await this._sandbox.init();
-    this.logger.info(`Sandbox active. Temporary workspace: ${this._sandbox.sandboxPath}`);
+    this.logger.info(
+      `Sandbox active. Temporary workspace: ${this._sandbox.sandboxPath}`,
+    );
     return this._sandbox.sandboxPath;
   }
 
@@ -237,12 +242,14 @@ export class ExecutionContext {
    */
   async indexForSearch(): Promise<number> {
     if (!this._repoMap) await this.scan();
-    
+
     try {
-      const { VectorSearch } = await import('../../project-context/vector-search');
+      const { VectorSearch } = await import(
+        '../../project-context/vector-search'
+      );
       const vectorSearch = new VectorSearch(this.projectRoot, this.router);
       await vectorSearch.init();
-      
+
       this.logger.info('Indexing repository for vector search...');
       const indexedCount = await vectorSearch.indexRepository(this._repoMap!);
       this.logger.info(
@@ -268,12 +275,7 @@ export class ExecutionContext {
     const instructions = loadInstructions(this.projectRoot);
     const repoMap = this._repoMap ?? scanRepo(this.projectRoot);
 
-    return buildContext(
-      projectInfo,
-      instructions,
-      repoMap,
-      request,
-    );
+    return buildContext(projectInfo, instructions, repoMap, request);
   }
 
   get config(): RdtConfig | undefined {

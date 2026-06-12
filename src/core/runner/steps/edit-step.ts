@@ -12,7 +12,8 @@ import { testRunnerTool } from '../../../tools/test-runner';
  * Step: Editing files to implement the plan.
  */
 export async function editStep(context: StepContext): Promise<void> {
-  const { state, executionContext, router, logger, config, sandboxCwd } = context;
+  const { state, executionContext, router, logger, config, sandboxCwd } =
+    context;
 
   if (!sandboxCwd) {
     throw new Error('Sandbox CWD is required for edit step');
@@ -32,8 +33,7 @@ export async function editStep(context: StepContext): Promise<void> {
 
   const editorConfig: EditorAgentConfig = {
     router: router ?? ({} as ProviderRouter),
-    policyName:
-      config.rdtConfig?.agents?.editor?.model_policy ?? 'code_strong',
+    policyName: config.rdtConfig?.agents?.editor?.model_policy ?? 'code_strong',
     tools: [],
     cwd: sandboxCwd,
   };
@@ -55,7 +55,9 @@ export async function editStep(context: StepContext): Promise<void> {
     );
     if (res.success && res.result) {
       trial1Result = res.result;
-      const testRes = await testRunnerTool.execute({ cwd: sandbox1.sandboxPath });
+      const testRes = await testRunnerTool.execute({
+        cwd: sandbox1.sandboxPath,
+      });
       trial1Passed = testRes.success && (testRes.data?.passed ?? false);
       logger.info(`Trial 1 test result: ${trial1Passed ? 'PASSED' : 'FAILED'}`);
     }
@@ -80,7 +82,9 @@ export async function editStep(context: StepContext): Promise<void> {
     );
     if (res.success && res.result) {
       trial2Result = res.result;
-      const testRes = await testRunnerTool.execute({ cwd: sandbox2.sandboxPath });
+      const testRes = await testRunnerTool.execute({
+        cwd: sandbox2.sandboxPath,
+      });
       trial2Passed = testRes.success && (testRes.data?.passed ?? false);
       logger.info(`Trial 2 test result: ${trial2Passed ? 'PASSED' : 'FAILED'}`);
     }

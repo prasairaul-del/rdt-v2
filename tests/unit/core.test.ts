@@ -8,10 +8,7 @@ import {
 } from '../../src/core/errors';
 import { TaskEventBus, globalEventBus } from '../../src/core/events';
 import { TaskLogger } from '../../src/core/logger';
-import {
-  addTaskError,
-  createTaskState,
-} from '../../src/core/task-state';
+import { addTaskError, createTaskState } from '../../src/core/task-state';
 import { StateMachine } from '../../src/core/runner/state-machine';
 
 function transitionState(state: any, to: any) {

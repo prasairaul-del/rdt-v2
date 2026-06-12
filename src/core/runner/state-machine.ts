@@ -1,10 +1,6 @@
 import { globalEventBus } from '../events';
 import { TaskLogger } from '../logger';
-import {
-  type TaskState,
-  type TaskStatus,
-  addTaskError,
-} from '../task-state';
+import { type TaskState, type TaskStatus, addTaskError } from '../task-state';
 
 /** Transitions that are valid from each state. */
 export const TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
@@ -47,15 +43,15 @@ export class StateMachine {
     }
 
     const from = this.state.status;
-    
+
     // Explicitly transition to target state
     this.transition(targetState);
-    
+
     this.logger.info(`Step: ${targetState}`);
 
     try {
       const result = await fn();
-      
+
       globalEventBus.emitProgress(
         this.state.id,
         targetState,
@@ -69,7 +65,7 @@ export class StateMachine {
         err instanceof Error && 'code' in err
           ? (err as any).code
           : 'STEP_ERROR';
-      
+
       addTaskError(this.state, message, code, 'fatal');
       throw err; // Re-throw to be caught by runner
     }
@@ -81,7 +77,7 @@ export class StateMachine {
    */
   transition(to: TaskStatus): void {
     const from = this.state.status;
-    
+
     const allowed = TRANSITIONS[from];
     if (!allowed.includes(to)) {
       throw new Error(
@@ -109,14 +105,20 @@ export class StateMachine {
   /**
    * Record an error without necessarily failing the task.
    */
-  addError(message: string, code: string, severity: 'fatal' | 'recoverable' | 'warning' = 'recoverable'): void {
+  addError(
+    message: string,
+    code: string,
+    severity: 'fatal' | 'recoverable' | 'warning' = 'recoverable',
+  ): void {
     addTaskError(this.state, message, code, severity);
-    
+
     // Auto-transition for fatal errors handled by addTaskError
     // But we might want to emit a state change event if it happened
     if (severity === 'fatal' && this.state.status === 'failed') {
       // It already transitioned in addTaskError, but we might want to log it
-      this.logger.error(`Fatal error in state ${this.state.status}: ${message}`);
+      this.logger.error(
+        `Fatal error in state ${this.state.status}: ${message}`,
+      );
     }
   }
 

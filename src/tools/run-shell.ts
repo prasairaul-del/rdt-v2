@@ -1,5 +1,6 @@
-import { execSync } from 'node:child_process';
-import { errorResult, successResult } from '../core/result';
+import { spawn } from 'node:child_process';
+import { defaultLogger } from '../core/logger';
+import { errorResult, successResult, type ToolResult } from '../core/result';
 import { wrapCommand } from './process-isolation';
 import type { Tool } from './types';
 
@@ -9,6 +10,7 @@ export interface RunShellInput {
   allowBlocked?: boolean;
   /** Override working directory (avoids process.cwd() dependency) */
   cwd?: string;
+  logger?: any;
 }
 
 export interface RunShellOutput {
@@ -98,6 +100,7 @@ export const runShellTool: Tool<RunShellInput, RunShellOutput> = {
 
   async execute(input: RunShellInput) {
     const timeout = input.timeoutMs ?? 30_000;
+    const logger = input.logger ?? defaultLogger;
 
     // Check blocked commands
     const blockedMsg = isBlocked(input.command);
@@ -123,40 +126,82 @@ export const runShellTool: Tool<RunShellInput, RunShellOutput> = {
     try {
       const cwd = input.cwd ?? process.cwd();
       const isolatedCommand = wrapCommand(input.command, cwd);
-      const stdout = execSync(isolatedCommand, {
-        encoding: 'utf-8',
-        timeout,
-        maxBuffer: 10 * 1024 * 1024,
-        cwd,
-      });
 
-      return successResult({ stdout: stdout.trim(), stderr: '', exitCode: 0 });
-    } catch (err) {
-      if (err instanceof Error) {
-        const error = err as Error & {
-          code?: number;
-          stdout?: string;
-          stderr?: string;
-          killed?: boolean;
-        };
-        const exitCode = error.code ?? 1;
-        const stderr = error.stderr ?? '';
-        const stdout = error.stdout ?? '';
-
-        if (error.killed) {
-          return errorResult('TIMEOUT', `Command timed out after ${timeout}ms`);
-        }
-
-        return successResult({
-          stdout: stdout?.toString().trim() || '',
-          stderr: stderr?.toString().trim() || error.message,
-          exitCode: typeof exitCode === 'number' ? exitCode : 1,
+      return new Promise<ToolResult<RunShellOutput>>((resolvePromise) => {
+        const child = spawn(isolatedCommand, [], {
+          shell: true,
+          cwd,
         });
-      }
-      return errorResult(
-        'COMMAND_FAILED',
-        `Shell command failed: ${String(err)}`,
-      );
+
+        let stdoutData = '';
+        let stderrData = '';
+        let stdoutBuffer = '';
+        let stderrBuffer = '';
+
+        child.stdout?.on('data', (chunk) => {
+          const data = chunk.toString();
+          stdoutData += data;
+          stdoutBuffer += data;
+          const lines = stdoutBuffer.split(/\r?\n/);
+          stdoutBuffer = lines.pop() || '';
+          for (const line of lines) {
+            logger.info(line);
+          }
+        });
+
+        child.stderr?.on('data', (chunk) => {
+          const data = chunk.toString();
+          stderrData += data;
+          stderrBuffer += data;
+          const lines = stderrBuffer.split(/\r?\n/);
+          stderrBuffer = lines.pop() || '';
+          for (const line of lines) {
+            logger.error(line);
+          }
+        });
+
+        let killed = false;
+        const timeoutTimer = setTimeout(() => {
+          killed = true;
+          child.kill();
+        }, timeout);
+
+        child.on('error', (err) => {
+          clearTimeout(timeoutTimer);
+          resolvePromise(
+            errorResult(
+              'COMMAND_FAILED',
+              `Shell command failed to start process: ${err.message}`,
+            ),
+          );
+        });
+
+        child.on('exit', (code, signal) => {
+          clearTimeout(timeoutTimer);
+          if (stdoutBuffer) logger.info(stdoutBuffer);
+          if (stderrBuffer) logger.error(stderrBuffer);
+
+          if (killed || signal === 'SIGTERM') {
+            resolvePromise(
+              errorResult('TIMEOUT', `Command timed out after ${timeout}ms`),
+            );
+            return;
+          }
+
+          const finalExitCode = code ?? 1;
+
+          resolvePromise(
+            successResult({
+              stdout: stdoutData.trim(),
+              stderr: stderrData.trim(),
+              exitCode: finalExitCode,
+            }),
+          );
+        });
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return errorResult('COMMAND_FAILED', `Shell command failed: ${message}`);
     }
   },
 };

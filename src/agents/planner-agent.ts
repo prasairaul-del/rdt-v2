@@ -32,24 +32,24 @@ export async function plannerAgent(
     // Try to use the provider router for AI-powered plan generation
     if (config.router?.route) {
       try {
-        let userContent = `Task: ${request}\n\nSelected files context:\n${(input.files ?? [])
+        let userContent = `Task: ${request}\n\nSelected files context:\n${(
+          input.files ?? []
+        )
           .slice(0, 10)
           .map((f) => `- ${f.path}: ${f.reason}`)
           .join('\n')}`;
 
         if (task.reviewResults && task.reviewResults.length > 0) {
           const lastReview = task.reviewResults[task.reviewResults.length - 1];
-          userContent += `\n\n### PREVIOUS IMPLEMENTATION ATTEMPT FAILURE\n` +
+          userContent +=
+            `\n\n### PREVIOUS IMPLEMENTATION ATTEMPT FAILURE\n` +
             `The previous implementation attempt did not pass checks. You must revise your plan to address this.\n\n` +
             `Last Plan summary: ${task.planSummary || 'None'}\n` +
             `Issues identified by reviewer:\n${lastReview.issues.map((i) => `- ${i}`).join('\n')}\n` +
             `Required fixes:\n${lastReview.requiredFixes.map((f) => `- ${f}`).join('\n')}`;
         }
 
-        const messages: CompletionMessage[] = [
-          {
-            role: 'system',
-            content: `You are a senior software engineer planning code changes.
+        let systemPrompt = `You are a senior software engineer planning code changes.
 Given a task request and project context, create a step-by-step implementation plan.
 
 Project: ${project.project.name}
@@ -63,7 +63,16 @@ Respond with a JSON plan containing:
 - testPlan: array of test verification steps
 - risks: array of potential issues
 
-Keep steps concrete and actionable.`,
+Keep steps concrete and actionable.`;
+
+        if (project.instructions.customInstructions) {
+          systemPrompt += `\n\nCustom Instructions:\n${project.instructions.customInstructions}`;
+        }
+
+        const messages: CompletionMessage[] = [
+          {
+            role: 'system',
+            content: systemPrompt,
           },
           {
             role: 'user',

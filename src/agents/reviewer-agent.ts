@@ -11,6 +11,7 @@ export interface ReviewerAgentConfig {
   policyName: string;
   /** Explicit working directory for tool operations (avoids process.cwd() dependency) */
   cwd?: string;
+  logger?: any;
 }
 
 /**
@@ -65,6 +66,7 @@ export async function reviewerAgent(
     const testResult = await testRunnerTool.execute({
       timeoutMs: 120_000,
       cwd: config?.cwd,
+      logger: config?.logger,
     });
     const testDuration = performance.now() - testStart;
     toolCalls.push({
@@ -139,6 +141,7 @@ export async function reviewerAgent(
       command: typecheckCmd,
       timeoutMs: 60_000,
       cwd,
+      logger: config?.logger,
     });
     const typecheckDuration = performance.now() - typecheckStart;
     toolCalls.push({
@@ -181,10 +184,7 @@ export async function reviewerAgent(
               .join('\n')
           : 'No plan steps available';
 
-        const messages: CompletionMessage[] = [
-          {
-            role: 'system',
-            content: `You are a senior engineer reviewing code changes.
+        let systemPrompt = `You are a senior engineer reviewing code changes.
 Given the task, plan, git diff, and test results, determine if the changes are correct and should be approved.
 
 Project: ${project.project.name}
@@ -194,7 +194,16 @@ Respond with a JSON object:
 - approved: boolean — true if changes are correct and tests pass
 - summary: string — brief review summary
 - issues: string[] — any concerns found
-- requiredFixes: string[] — what must be fixed before approval`,
+- requiredFixes: string[] — what must be fixed before approval`;
+
+        if (project.instructions.customInstructions) {
+          systemPrompt += `\n\nCustom Instructions:\n${project.instructions.customInstructions}`;
+        }
+
+        const messages: CompletionMessage[] = [
+          {
+            role: 'system',
+            content: systemPrompt,
           },
           {
             role: 'user',
@@ -240,10 +249,10 @@ Typecheck passed: ${typecheckPassed}`,
             if (validation.success) {
               approved = validation.data.approved;
               providerMadeDecision = true;
-              
+
               const parsedIssues = validation.data.issues ?? [];
               const parsedFixes = validation.data.requiredFixes ?? [];
-              
+
               issues.push(...parsedIssues);
               requiredFixes.push(...parsedFixes);
             }

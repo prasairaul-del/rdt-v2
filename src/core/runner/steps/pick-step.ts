@@ -7,7 +7,7 @@ import type { StepContext } from '../types';
  */
 export async function pickStep(context: StepContext): Promise<void> {
   const { state, executionContext, router, logger, config } = context;
-  
+
   const agentContext = executionContext.buildAgentContext(state.request);
 
   // Use the file picker agent
@@ -25,8 +25,7 @@ export async function pickStep(context: StepContext): Promise<void> {
   const filePickerConfig = {
     router: router,
     policyName:
-      config.rdtConfig?.agents?.file_picker?.model_policy ??
-      'cheap_fast',
+      config.rdtConfig?.agents?.file_picker?.model_policy ?? 'cheap_fast',
   };
   const result = await filePicker.execute(
     {

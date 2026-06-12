@@ -4,7 +4,11 @@ import {
   type TaskState,
 } from './runner/types';
 
-export { type TaskBaselines, type TaskState, type TaskStatus } from './runner/types';
+export {
+  type TaskBaselines,
+  type TaskState,
+  type TaskStatus,
+} from './runner/types';
 
 export function createTaskState(
   request: string,
