@@ -45,12 +45,14 @@ rdt dashboard     # Launch the interactive Web dashboard
 
 ```bash
 bun install          # Install dependencies
-bun run test         # Run 237 tests across 11 suites
+bun run test         # Run 262 tests across all suites
 bun run typecheck    # Type-check the project
 bun run lint         # Lint with Biome
 bun run format       # Format with Biome
 bun run build        # Build and bundle the CLI application
 ```
+
+For a comprehensive guide to codebase design, agent protocols, and task execution pipelines, see the [Contributor Guide](file:///C:/Long-run%20Project/RDT-v2/docs/contributor-guide.md).
 
 ---
 
@@ -86,21 +88,23 @@ User Request → File Picker → Planner → Editor → Reviewer → Final Repor
 
 ### Test Suite
 
-**237 tests passing** across 11 suites (~12s):
+**262 tests passing** across 18 unit and integration suites (~15s):
 
-| Suite | Tests | What it covers |
-|---|---|---|
-| `unit/core.test.ts` | 39 | Results, events, logger, config |
-| `unit/router.test.ts` | 35 | Cooldown, fallback, quotas, policies |
-| `unit/providers.test.ts` | 25 | Provider types, mock, OpenAI-compatible, Google |
-| `unit/tools.test.ts` | 25 | All tools return correct ToolResult |
-| `unit/agents.test.ts` | 30 | Agent schemas, tool access enforcement |
-| `unit/task-runner.test.ts` | 17 | State machine, edit loops, rollback, dates |
-| `unit/cli.test.ts` | 19 | --help, --version, init, status, dashboard options, explain, undo |
-| `unit/dashboard.test.ts` | 9 | API status, file listings, locks, background task runs |
-| `unit/sandbox.test.ts` | 3 | Sandbox cloning, edit isolation, safe cleanup |
-| `integration/init-flow.test.ts` | 12 | End-to-end init + status |
-| `integration/run-flow.test.ts` | 23 | End-to-end run on ts-basic, failing-test, python-basic |
+| Suite | What it covers |
+|---|---|
+| `unit/core.test.ts` | Results, events, logger, config |
+| `unit/router.test.ts` | Cooldown, fallback, quotas, policies |
+| `unit/providers.test.ts` | Provider types, mock, OpenAI-compatible, Google |
+| `unit/tools.test.ts` | All tools return correct ToolResult |
+| `unit/agents.test.ts` | Agent schemas, tool access enforcement |
+| `unit/task-runner.test.ts` | State machine, edit loops, rollback, dates |
+| `unit/cli.test.ts` | CLI option parsing and commands |
+| `unit/dashboard.test.ts` | API status, file listings, locks, background runs |
+| `unit/sandbox.test.ts` | Sandbox cloning, edit isolation, safe cleanup |
+| `unit/phase3.test.ts` | Phase 3 filesystem tools, custom instructions, async logs |
+| `unit/phase4.test.ts` | Phase 4 database migrations, caching, telemetry cost/summary |
+| `integration/init-flow.test.ts` | End-to-end init + status flow |
+| `integration/run-flow.test.ts` | End-to-end task runner on mock projects |
 
 ---
 

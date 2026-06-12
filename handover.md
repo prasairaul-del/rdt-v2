@@ -31,37 +31,28 @@ Phase 1: Architecture & Hardening is 100% complete. The project has been success
 
 ## Roadmap Context
 
-The project follows a 4-phase improvement roadmap. Phase 1 is complete. The Antigravity agent will implement the remaining phases sequentially.
+All 4 phases of the improvement roadmap are now 100% completed.
 
 ### Phase 1: Architecture & Hardening (COMPLETED)
 - Modularized `TaskRunner` and Dashboard SPA.
 - Implemented Zod schema validation for Agent I/O.
 - Consolidated utility functions.
 
-### Phase 2: Agentic Intelligence & Flow (IMMEDIATE NEXT STEPS)
-- **Goal**: Improve swarm collaboration and decision making.
-- **Priority**: Multi-turn planning, more robust error correction loops, and model policy optimizations for cost/speed.
+### Phase 2: Agentic Intelligence & Flow (COMPLETED)
+- **Multi-turn Planning**: Refactored the Planner agent to support breaking complex tasks into sub-plans that can be executed and reviewed iteratively.
+- **Robust Error Loops**: Improved transition logic in state-machine to handle review/fixing cycles and rollback cleanly on review failure.
+- **Model Policies**: Added cost-based secondary sorting in `matchModels` to prioritize the most cost-effective models.
 
-### Phase 3: UX, Extensibility & Advanced Tooling (UPCOMING)
-- **Goal**: Expand the toolset and enhance the developer experience.
-- **Scope**: Add granular filesystem tools, real-time logs in Dashboard, and a plugin system for custom instructions.
+### Phase 3: UX, Extensibility & Advanced Tooling (COMPLETED)
+- **Granular Filesystem Tools**: Implemented `make_directory`, `delete_file`, and `move_file` tools under `src/tools/`.
+- **Real-time Log Streaming**: Refactored execution tools to use `spawn` and stream output line-by-line asynchronously to the dashboard.
+- **Custom Instructions**: Added scanning and loading of user-defined rules from `.rdt/instructions/*.md`.
 
-### Phase 4: Polish & Best Practices (FINAL PHASE)
-- **Goal**: Production readiness and performance tuning.
-- **Scope**: Large-scale repository performance indexing, telemetry, and comprehensive documentation for external contributors.
-
-## Next Steps for Antigravity Agent
-The user has requested to complete the remaining roadmap (**Phases 2, 3, and 4**) using the Antigravity agent.
-
-### Immediate Focus: Phase 2
-1. **Multi-turn Planning**: Refactor the Planner agent to support breaking complex tasks into sub-plans that can be executed and reviewed iteratively.
-2. **Robust Error Loops**: Improve the transition logic in `src/core/runner/state-machine.ts` to better handle fixing cycles when tests fail.
-3. **Model Policies**: Optimize `src/router/model-policy.ts` to ensure the most cost-effective models are used for each specific agent task.
-
-## Instructions
-1. Run `bun run test` to verify the environment.
-2. Examine `src/core/runner/` to understand the new modular execution flow.
-3. Continue implementation based on the user's specific requirements for Phase 3.
+### Phase 4: Polish & Best Practices (COMPLETED)
+- **Large-scale Repository Caching**: Optimized vector indexing using file size and modification time (`mtimeMs`) metadata, bypassing re-indexing for unmodified files.
+- **Telemetry**: Profiled and aggregated input/output tokens, durations, and estimated costs across all agents with aggregated totals.
+- **Documentation**: Created a comprehensive contributor guide (`docs/contributor-guide.md`).
 
 ---
-*Signed: Gemini CLI Orchestrator*
+*Signed: Antigravity AI Orchestrator & Gemini CLI Orchestrator*
+
