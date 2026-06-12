@@ -30,6 +30,7 @@ export async function reviewerAgent(
   const issues: string[] = [];
   const testsRun: ReviewResult['testsRun'] = [];
   const requiredFixes: string[] = [];
+  let providerSummary = '';
 
   try {
     // 1. Check git diff
@@ -251,6 +252,7 @@ Typecheck passed: ${typecheckPassed}`,
             if (validation.success) {
               approved = validation.data.approved;
               providerMadeDecision = true;
+              providerSummary = validation.data.summary || '';
 
               const parsedIssues = validation.data.issues ?? [];
               const parsedFixes = validation.data.requiredFixes ?? [];
@@ -295,7 +297,10 @@ Typecheck passed: ${typecheckPassed}`,
         testsRun,
         requiredFixes,
         finalSummary:
-          summaryParts.length > 0 ? summaryParts.join(', ') : 'Review complete',
+          providerSummary ||
+          (summaryParts.length > 0
+            ? summaryParts.join(', ')
+            : 'Review complete'),
       },
       modelUsed: config?.policyName ?? 'reviewer',
       providerUsed: config?.router ? 'provider' : 'heuristic',

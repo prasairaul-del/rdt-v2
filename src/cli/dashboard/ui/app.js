@@ -7,6 +7,7 @@ let config = null;
 let files = [];
 let selectedFilesOverride = new Set();
 let isServerRunningTask = false;
+let vibeMode = localStorage.getItem('vibeMode') === 'true';
 
 // Plain English Descriptions of state machine steps
 const stepGuides = {
@@ -207,6 +208,11 @@ async function selectTask(taskId) {
     escapeHtml,
   ); // Update active highlights in sidebar
 
+  if (taskId === null) {
+    renderWelcomePanel();
+    return;
+  }
+
   const panel = document.getElementById('mainPanel');
   panel.innerHTML = `<div class="empty-state"><div class="pulse-dot" style="width: 24px; height: 24px; background-color: var(--accent-blue);"></div><p>Loading task details...</p></div>`;
 
@@ -229,6 +235,71 @@ async function selectTask(taskId) {
 function renderTaskDetails(task) {
   const panel = document.getElementById('mainPanel');
   panel.innerHTML = '';
+
+  if (vibeMode) {
+    // Main Header Card
+    const headerCard = document.createElement('div');
+    headerCard.className = 'panel-card';
+    const requestText = escapeHtml(task.request || 'Empty task request');
+    const errorSection = task.errorMessage
+      ? `<div style="background: rgba(244, 63, 94, 0.1); border-left: 4px solid var(--accent-red); padding: 1rem; border-radius: 8px; margin-top: 1rem; font-size: 0.95rem;">
+               <strong style="color: var(--accent-red)">Execution Error:</strong> ${escapeHtml(task.errorMessage)}
+             </div>`
+      : '';
+    headerCard.innerHTML = `
+          <div class="task-main-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+            <div class="task-info-block" style="flex: 1; text-align: left;">
+              <h2>${requestText}</h2>
+              <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                <span class="task-id">ID: ${task.id}</span>
+                <span class="task-status status-${task.status}">${task.status === 'done' ? 'Completed ✨' : task.status}</span>
+              </div>
+            </div>
+          </div>
+          ${errorSection}
+        `;
+    panel.appendChild(headerCard);
+
+    // Simple Vibe Report Card
+    const reportCard = document.createElement('div');
+    reportCard.className = 'vibe-report-card';
+
+    // Get plain-English summary
+    const lastReview = task.reviewResults && task.reviewResults.length > 0
+      ? task.reviewResults[task.reviewResults.length - 1]
+      : null;
+    const summaryText = lastReview?.finalSummary || task.planSummary || 'I am working on planning and implementing your changes right now...';
+
+    // Files modified
+    let filesHTML = '';
+    if (task.changedFiles && task.changedFiles.length > 0) {
+      filesHTML = `
+        <div style="margin-top: 1rem;">
+          <strong style="display: block; margin-bottom: 0.5rem; color: var(--text-color);">Files Modified:</strong>
+          <div class="file-tag-list">
+            ${task.changedFiles.map((f) => `<span class="file-tag">${escapeHtml(f)}</span>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    reportCard.innerHTML = `
+      <div class="vibe-report-header">
+        <h3 style="font-size: 1.2rem; font-weight: 600;">✨ Action Summary</h3>
+      </div>
+      <div class="vibe-report-summary">
+        ${escapeHtml(summaryText)}
+      </div>
+      ${filesHTML}
+      <div class="vibe-action-buttons">
+        <button class="vibe-btn vibe-btn-primary" onclick="alert('Changes successfully saved and active in workspace!')">Keep Changes</button>
+        <button class="vibe-btn vibe-btn-secondary" onclick="revertVibeTask('${task.id}')">Undo Changes</button>
+      </div>
+    `;
+
+    panel.appendChild(reportCard);
+    return;
+  }
 
   // Main Header Card
   const headerCard = document.createElement('div');
@@ -612,8 +683,65 @@ function renderWelcomePanel() {
   const welcomeDiv = document.createElement('div');
   welcomeDiv.className = 'welcome-container';
 
-  // Load config summaries
   const projName = config?.project?.name || 'Workspace';
+
+  if (vibeMode) {
+    welcomeDiv.innerHTML = `
+      <div class="welcome-header">
+        <span style="font-size: 2.5rem;">✨</span>
+        <div style="text-align: left;">
+          <h2>Vibe Creator Center: ${escapeHtml(projName)}</h2>
+          <p style="font-size: 0.95rem; color: var(--text-muted); margin-top: 0.25rem;">Have an idea? Describe it above, or choose a template below to get started!</p>
+        </div>
+      </div>
+
+      <h3 style="font-size: 1.1rem; margin-top: 2rem; margin-bottom: 0.75rem; text-align: left;">Need an idea? Try these templates:</h3>
+      <div class="vibe-template-grid">
+        <div class="vibe-template-card" onclick="setVibePrompt('Add a beautiful dark mode toggle button to the main page')">
+          <span class="icon">🎨</span>
+          <h4>Modern Dark Theme</h4>
+          <p>Style the workspace with elegant dark theme vibes.</p>
+        </div>
+        <div class="vibe-template-card" onclick="setVibePrompt('Add robust email format validation to all contact input forms')">
+          <span class="icon">✉️</span>
+          <h4>Email Validation</h4>
+          <p>Add check inputs for user-facing email forms.</p>
+        </div>
+        <div class="vibe-template-card" onclick="setVibePrompt('Scan all files and automatically fix any failing unit tests or compilation issues')">
+          <span class="icon">🩺</span>
+          <h4>Auto Bug Repair</h4>
+          <p>Find and fix bugs in tests or compiler alerts.</p>
+        </div>
+        <div class="vibe-template-card" onclick="setVibePrompt('Write a clean contributor-guide.md in the docs directory for new developers')">
+          <span class="icon">📝</span>
+          <h4>Document Workspace</h4>
+          <p>Generate simple instructions and guide docs.</p>
+        </div>
+      </div>
+
+      <div class="keys-config-card">
+        <h3 style="text-align: left;">🔑 Configure API Keys</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; text-align: left;">Set your credentials here to configure models instantly without coding.</p>
+        <div class="keys-form-group">
+          <label for="openrouterKey">OpenRouter API Key (fallback default)</label>
+          <input type="password" id="openrouterKey" placeholder="sk-or-v1-..." />
+        </div>
+        <div class="keys-form-group">
+          <label for="anthropicKey">Anthropic API Key (Claude models)</label>
+          <input type="password" id="anthropicKey" placeholder="sk-ant-..." />
+        </div>
+        <div class="keys-form-group">
+          <label for="geminiKey">Gemini API Key (Google models)</label>
+          <input type="password" id="geminiKey" placeholder="AIzaSy..." />
+        </div>
+        <button class="vibe-btn vibe-btn-primary" onclick="saveApiKeys()" style="width: 100%; margin-top: 0.5rem;">Save API Keys</button>
+      </div>
+    `;
+    panel.appendChild(welcomeDiv);
+    return;
+  }
+
+  // Load config summaries
   const projLang = config?.project?.language || 'typescript';
   const projPkg = config?.project?.package_manager || 'bun';
   const testCmd = config?.project?.test_command || 'bun test';
@@ -786,6 +914,81 @@ function updateThemeUI(isLight) {
   if (text) text.innerText = isLight ? 'Dark' : 'Light';
 }
 
+function toggleMode() {
+  vibeMode = !vibeMode;
+  localStorage.setItem('vibeMode', vibeMode);
+  updateModeUI(vibeMode);
+  if (selectedTaskId) {
+    selectTask(selectedTaskId);
+  } else {
+    renderWelcomePanel();
+  }
+}
+
+function updateModeUI(isVibe) {
+  const icon = document.getElementById('modeToggleIcon');
+  const text = document.getElementById('modeToggleText');
+  if (icon) icon.innerText = isVibe ? '✨' : '🛠️';
+  if (text) text.innerText = isVibe ? 'Vibe Mode' : 'Dev Mode';
+}
+
+function setVibePrompt(promptText) {
+  const input = document.getElementById('promptInput');
+  if (input) {
+    input.value = promptText;
+    input.focus();
+  }
+}
+
+async function saveApiKeys() {
+  const orKey = document.getElementById('openrouterKey').value.trim();
+  const antKey = document.getElementById('anthropicKey').value.trim();
+  const gemKey = document.getElementById('geminiKey').value.trim();
+
+  const payload = {};
+  if (orKey) payload['OPENROUTER_API_KEY'] = orKey;
+  if (antKey) payload['ANTHROPIC_API_KEY'] = antKey;
+  if (gemKey) payload['GEMINI_API_KEY'] = gemKey;
+
+  try {
+    const res = await fetch('/api/config/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      alert('API keys saved successfully to your .env file!');
+    } else {
+      const err = await res.json();
+      alert('Failed to save API keys: ' + (err.error || 'unknown error'));
+    }
+  } catch (err) {
+    alert('Failed to communicate with server: ' + err);
+  }
+}
+
+async function revertVibeTask(taskId) {
+  if (!confirm('Are you sure you want to discard these changes and restore the previous code?')) return;
+  const prompt = `undo task ${taskId}`;
+  try {
+    const res = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request: prompt }),
+    });
+    if (res.ok) {
+      const body = await res.json();
+      alert('Rollback queued successfully! The agent is restoring files...');
+      selectTask(body.taskId);
+    } else {
+      const err = await res.json();
+      alert('Failed to rollback task: ' + (err.error || 'unknown error'));
+    }
+  } catch (err) {
+    alert('Failed to communicate with server: ' + err);
+  }
+}
+
 async function loadPastLogs(taskId) {
   const consoleDiv = document.getElementById('logsConsole');
   if (!consoleDiv) return;
@@ -925,6 +1128,9 @@ async function init() {
     updateThemeUI(false);
   }
 
+  // Apply saved mode UI on startup
+  updateModeUI(vibeMode);
+
   await loadConfig();
   await loadFiles();
   await loadTasks();
@@ -939,5 +1145,19 @@ async function init() {
     renderWelcomePanel();
   }
 }
+
+// Global Exposures for HTML Handlers
+window.toggleTheme = toggleTheme;
+window.toggleMode = toggleMode;
+window.runTask = runTask;
+window.switchTab = switchTab;
+window.toggleFileSelect = toggleFileSelect;
+window.filterFiles = filterFiles;
+window.cancelCurrentTask = cancelCurrentTask;
+window.selectTask = selectTask;
+window.toggleDiffBody = toggleDiffBody;
+window.setVibePrompt = setVibePrompt;
+window.saveApiKeys = saveApiKeys;
+window.revertVibeTask = revertVibeTask;
 
 window.onload = init;

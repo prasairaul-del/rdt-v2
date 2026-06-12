@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
@@ -399,6 +399,47 @@ export function createDashboardCommand(): Command {
             }
           }
 
+          // API: Save API Keys
+          if (url.pathname === '/api/config/keys' && req.method === 'POST') {
+            try {
+              const body = (await req.json()) as Record<string, string>;
+              const envPath = resolve(projectRoot, '.env');
+              let envContent = '';
+              let lines: string[] = [];
+              if (existsSync(envPath)) {
+                envContent = readFileSync(envPath, 'utf-8');
+                lines = envContent.split(/\r?\n/);
+              }
+
+              const allowedKeys = [
+                'OPENROUTER_API_KEY',
+                'ANTHROPIC_API_KEY',
+                'GEMINI_API_KEY',
+              ];
+              for (const [key, val] of Object.entries(body)) {
+                if (!allowedKeys.includes(key)) continue;
+                const idx = lines.findIndex((l) =>
+                  l.trim().startsWith(`${key}=`),
+                );
+                if (idx !== -1) {
+                  lines[idx] = `${key}=${val}`;
+                } else {
+                  lines.push(`${key}=${val}`);
+                }
+              }
+
+              writeFileSync(envPath, lines.join('\n'), 'utf-8');
+              return new Response(JSON.stringify({ success: true }), {
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+              });
+            } catch (err) {
+              return new Response(JSON.stringify({ error: String(err) }), {
+                status: 500,
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+              });
+            }
+          }
+
           // API: Get Workspace Configuration
           if (url.pathname === '/api/config' && req.method === 'GET') {
             return new Response(JSON.stringify(configResult.config), {
@@ -466,7 +507,11 @@ export function createDashboardCommand(): Command {
 
           // Serve static assets from the dashboard folder
           if (url.pathname.startsWith('/ui/')) {
-            const assetPath = resolve(__dirname, '../dashboard', `.${url.pathname}`);
+            const assetPath = resolve(
+              __dirname,
+              '../dashboard',
+              `.${url.pathname}`,
+            );
             if (existsSync(assetPath)) {
               try {
                 const content = readFileSync(assetPath);
@@ -482,10 +527,9 @@ export function createDashboardCommand(): Command {
                   headers: { 'Content-Type': contentType, ...corsHeaders },
                 });
               } catch (err) {
-                return new Response(
-                  `Error reading asset: ${String(err)}`,
-                  { status: 500 },
-                );
+                return new Response(`Error reading asset: ${String(err)}`, {
+                  status: 500,
+                });
               }
             }
           }

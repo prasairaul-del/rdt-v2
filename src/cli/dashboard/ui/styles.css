@@ -856,10 +856,142 @@ header h1 {
 .check-output {
   padding: 1rem;
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   white-space: pre-wrap;
   color: var(--text-muted);
   max-height: 200px;
   overflow-y: auto;
   background: #05080f;
+}
+
+/* Vibe Mode Styles */
+.vibe-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.vibe-template-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: all 0.25s ease;
+  text-align: left;
+}
+.vibe-template-card:hover {
+  border-color: var(--accent-blue);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.15);
+}
+.vibe-template-card .icon {
+  font-size: 1.5rem;
+}
+.vibe-template-card h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.vibe-template-card p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.keys-config-card {
+  background: rgba(13, 19, 32, 0.5);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+}
+.keys-config-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.keys-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  text-align: left;
+}
+.keys-form-group label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.keys-form-group input {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.85rem;
+  outline: none;
+}
+.keys-form-group input:focus {
+  border-color: var(--accent-blue);
+}
+
+.vibe-report-card {
+  background: rgba(13, 19, 32, 0.5);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  text-align: left;
+}
+.vibe-report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.vibe-report-header h2 {
+  font-size: 1.5rem;
+}
+.vibe-report-summary {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.vibe-action-buttons {
+  display: flex;
+  gap: 1rem;
+}
+.vibe-btn {
+  padding: 0.75rem 2rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+.vibe-btn-primary {
+  background: var(--accent-green);
+  color: #fff;
+}
+.vibe-btn-primary:hover {
+  box-shadow: 0 0 16px var(--accent-green-glow);
+  transform: translateY(-1px);
+}
+.vibe-btn-secondary {
+  background: rgba(244, 63, 94, 0.15);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: var(--accent-red);
+}
+.vibe-btn-secondary:hover {
+  background: rgba(244, 63, 94, 0.25);
+  transform: translateY(-1px);
 }
