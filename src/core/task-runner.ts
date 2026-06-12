@@ -1,27 +1,29 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { agentRegistry } from '../agents/agent-registry';
-import type { EditorAgentConfig } from '../agents/editor-agent';
-import type { PlannerAgentConfig } from '../agents/planner-agent';
-import type { ReviewerAgentConfig } from '../agents/reviewer-agent';
-import { ProviderRouter } from '../router/provider-router';
-import { ProviderStateStore } from '../storage/provider-state-store';
-import { TaskLogStore } from '../storage/task-log-store';
-import { gitDiffTool } from '../tools/git-diff';
 import { globalEventBus } from './events';
 import { TaskLogger } from './logger';
 import { ExecutionContext } from './runner/execution-context';
 import { StateMachine } from './runner/state-machine';
 import {
   type TaskState,
-  addTaskError,
   createTaskState,
 } from './task-state';
 import {
   type TaskRunnerConfig,
   type TaskResult,
+  type StepContext,
 } from './runner/types';
+
+// Steps
+import { baselineStep } from './runner/steps/baseline-step';
+import { contextStep } from './runner/steps/context-step';
+import { scanStep } from './runner/steps/scan-step';
+import { pickStep } from './runner/steps/pick-step';
+import { planStep } from './runner/steps/plan-step';
+import { editStep } from './runner/steps/edit-step';
+import { reviewStep } from './runner/steps/review-step';
+import { finalizeStep } from './runner/steps/finalize-step';
 
 // ── Task Runner ──────────────────────────────────────────────────
 
@@ -80,15 +82,18 @@ export class TaskRunner {
     let sandboxCwd: string | undefined;
     let result: TaskResult;
 
+    const stepContext: StepContext = {
+      state,
+      config: this.config,
+      executionContext: this.executionContext,
+      router: this.router,
+      logger: this.logger,
+    };
+
     try {
       // ── STEP 1: CAPTURE BASELINE ────────────────────────────────
       await stateMachine.executeStep('capturing_baseline', async () => {
-        this.logger.info('Capturing git baseline...');
-        state.baselines = await this.executionContext.captureBaseline();
-        this.logger.info('Baseline captured', {
-          hasGit: !!state.baselines?.headHash,
-          dirtyFiles: state.baselines?.dirtyFiles.length ?? 0,
-        });
+        await baselineStep(stepContext);
       });
 
       // Setup Git feature branch if configured
@@ -96,38 +101,26 @@ export class TaskRunner {
 
       // Initialize isolated sandbox
       sandboxCwd = await this.executionContext.initSandbox(state.id);
+      stepContext.sandboxCwd = sandboxCwd;
 
       // ── STEP 2: LOAD CONTEXT ────────────────────────────────────
       await stateMachine.executeStep('loading_context', async () => {
-        this.logger.info('Loading project context...');
-        await this.executionContext.load();
-        // Update local config reference if it changed
-        if (this.executionContext.config) {
-          this.config.rdtConfig = this.executionContext.config;
-        }
-        this.logger.info('Context loaded');
+        await contextStep(stepContext);
       });
 
       // ── STEP 3: SCAN REPO ───────────────────────────────────────
       await stateMachine.executeStep('scanning_repo', async () => {
-        this.logger.info('Scanning repository...');
-        await this.executionContext.scan();
-        await this.executionContext.indexForSearch();
-        this.logger.info('Repository scanned');
+        await scanStep(stepContext);
       });
 
       // ── STEP 4: SELECT FILES ────────────────────────────────────
       await stateMachine.executeStep('selecting_files', async () => {
-        this.logger.info('Selecting relevant files...');
-        await this.selectFiles(state);
-        this.logger.info('Files selected', { count: state.selectedFilesCount });
+        await pickStep(stepContext);
       });
 
       // ── STEP 5: PLAN ────────────────────────────────────────────
       await stateMachine.executeStep('planning', async () => {
-        this.logger.info('Creating plan...');
-        await this.createPlan(state);
-        this.logger.info('Plan created', { summary: state.planSummary });
+        await planStep(stepContext);
       });
 
       // ── STEP 6-8: EDIT/REVIEW LOOP ──────────────────────────────
@@ -137,18 +130,12 @@ export class TaskRunner {
 
         // EDIT
         await stateMachine.executeStep('editing', async () => {
-          this.logger.info(
-            `Edit pass ${state.editPass}/${state.maxEditPasses}...`,
-          );
-          await this.editFiles(state, sandboxCwd!);
+          await editStep(stepContext);
         });
 
         // REVIEW
-        await stateMachine.executeStep('reviewing', async () => {
-          this.logger.info(
-            `Reviewing pass ${state.editPass}/${state.maxEditPasses}...`,
-          );
-          approved = await this.reviewChanges(state, sandboxCwd!);
+        approved = await stateMachine.executeStep('reviewing', async () => {
+          return await reviewStep(stepContext);
         });
 
         // Check if we need another pass
@@ -157,7 +144,7 @@ export class TaskRunner {
           this.logger.info(
             `Edit pass ${state.editPass} not approved — moving to fixing`,
             {
-              issues: state.errors.length,
+              issues: state.errors.filter(e => e.state === 'reviewing').length,
             },
           );
         } else if (approved) {
@@ -169,8 +156,8 @@ export class TaskRunner {
 
       // ── STEP 9: FINALIZE ────────────────────────────────────────
       await stateMachine.executeStep('finalizing', async () => {
-        this.logger.info('Finalizing task...');
-        await this.finalize(state, sandboxCwd!);
+        await finalizeStep(stepContext);
+        await this.saveTaskLog(state);
       });
 
       // Apply sandboxed edits back to host workspace
@@ -200,257 +187,7 @@ export class TaskRunner {
   }
 
   // ── Step Implementations ───────────────────────────────────────
-
-  private async selectFiles(state: TaskState): Promise<void> {
-    const context = this.executionContext.buildAgentContext(state.request);
-
-    // Use the file picker agent
-    const filePicker = agentRegistry.get('file_picker');
-    if (!filePicker) {
-      addTaskError(
-        state,
-        'File picker agent not found',
-        'AGENT_NOT_FOUND',
-        'fatal',
-      );
-      return;
-    }
-
-    const filePickerConfig = {
-      router: this.router,
-      policyName:
-        this.config.rdtConfig?.agents?.file_picker?.model_policy ??
-        'cheap_fast',
-    };
-    const result = await filePicker.execute(
-      {
-        task: state,
-        project: context,
-      },
-      filePickerConfig,
-    );
-
-    if (result.success && result.result) {
-      const selection = result.result as {
-        files: Array<{
-          path: string;
-          reason: string;
-          priority: 'high' | 'medium' | 'low';
-        }>;
-      };
-      state.selectedFilesCount = selection.files.length;
-      state.selectedFiles = selection.files;
-      this.logger.info(`Selected ${selection.files.length} files`, {
-        high: selection.files.filter(
-          (f: { priority: string }) => f.priority === 'high',
-        ).length,
-        medium: selection.files.filter(
-          (f: { priority: string }) => f.priority === 'medium',
-        ).length,
-      });
-    } else {
-      this.logger.warn('File picker returned no results', {
-        error: result.error?.message,
-      });
-      state.selectedFilesCount = 0;
-    }
-  }
-
-  private async createPlan(state: TaskState): Promise<void> {
-    const context = this.executionContext.buildAgentContext(state.request);
-
-    const planner = agentRegistry.get('planner');
-    if (!planner) {
-      addTaskError(
-        state,
-        'Planner agent not found',
-        'AGENT_NOT_FOUND',
-        'fatal',
-      );
-      return;
-    }
-
-    const plannerConfig: PlannerAgentConfig = {
-      router: this.router ?? ({} as ProviderRouter),
-      policyName:
-        this.config.rdtConfig?.agents?.planner?.model_policy ??
-        'smart_reasoning',
-      tools: [],
-    };
-
-    const result = await planner.execute(
-      {
-        task: state,
-        project: context,
-        files: state.selectedFiles,
-      },
-      plannerConfig,
-    );
-
-    if (result.success && result.result) {
-      const plan = result.result as {
-        summary: string;
-        steps: Array<{
-          id: string;
-          description: string;
-          targetFiles: string[];
-          risk: 'low' | 'medium' | 'high';
-        }>;
-        testPlan: string[];
-        risks: string[];
-      };
-      state.planSummary = plan.summary.substring(0, 200);
-      state.plan = plan;
-      this.logger.info(`Plan: ${plan.summary}`, {
-        steps: plan.steps.length,
-      });
-    } else {
-      addTaskError(
-        state,
-        'Planner agent failed',
-        'PLANNER_FAILED',
-        'recoverable',
-      );
-    }
-  }
-
-  private async editFiles(
-    state: TaskState,
-    sandboxCwd: string,
-  ): Promise<void> {
-    const context = this.executionContext.buildAgentContext(state.request);
-
-    const editor = agentRegistry.get('editor');
-    if (!editor) {
-      addTaskError(state, 'Editor agent not found', 'AGENT_NOT_FOUND', 'fatal');
-      return;
-    }
-
-    const editorConfig: EditorAgentConfig = {
-      router: this.router ?? ({} as ProviderRouter),
-      policyName:
-        this.config.rdtConfig?.agents?.editor?.model_policy ?? 'code_strong',
-      tools: [],
-      cwd: sandboxCwd,
-    };
-
-    this.logger.info('Starting edit trial to generate changes...');
-
-    const res = await editor.execute(
-      { task: state, plan: state.plan, project: context },
-      editorConfig,
-    );
-
-    if (res.success && res.result) {
-      const editResult = res.result as {
-        changedFiles: string[];
-        diff: string;
-        needsReview: boolean;
-        summary: string;
-      };
-      state.changedFiles = [
-        ...new Set([...state.changedFiles, ...editResult.changedFiles]),
-      ];
-
-      if (state.baselines) {
-        state.baselines.rdtTouchedFiles = [
-          ...new Set([
-            ...state.baselines.rdtTouchedFiles,
-            ...editResult.changedFiles,
-          ]),
-        ];
-      }
-
-      this.logger.info('Edits applied to sandbox', {
-        files: editResult.changedFiles.length,
-        needsReview: editResult.needsReview,
-      });
-    } else {
-      addTaskError(
-        state,
-        'Editor agent failed',
-        'EDITOR_FAILED',
-        'recoverable',
-      );
-    }
-  }
-
-  private async reviewChanges(
-    state: TaskState,
-    sandboxCwd: string,
-  ): Promise<boolean> {
-    const context = this.executionContext.buildAgentContext(state.request);
-
-    // Capture diff from the sandbox directory explicitly
-    const diffResult = await gitDiffTool.execute({ cwd: sandboxCwd });
-    if (diffResult.success && diffResult.data) {
-      state.diff = diffResult.data.diff;
-    }
-
-    const reviewer = agentRegistry.get('reviewer');
-    if (!reviewer) {
-      this.logger.warn('Reviewer agent not found — auto-approving');
-      return true;
-    }
-
-    const reviewerConfig: ReviewerAgentConfig = {
-      router: this.router ?? ({} as ProviderRouter),
-      policyName:
-        this.config.rdtConfig?.agents?.reviewer?.model_policy ??
-        'smart_reasoning',
-      cwd: sandboxCwd,
-    };
-
-    const result = await reviewer.execute(
-      {
-        task: state,
-        plan: state.plan as any,
-        project: context,
-        diff: state.diff,
-      },
-      reviewerConfig,
-    );
-
-    if (result.success && result.result) {
-      const review = result.result as any;
-
-      if (!state.reviewResults) {
-        state.reviewResults = [];
-      }
-      state.reviewResults.push(review);
-
-      if (review.issues.length > 0) {
-        for (const issue of review.issues) {
-          this.logger.warn(`Review issue: ${issue}`);
-        }
-      }
-
-      this.logger.info(
-        `Review: ${review.approved ? 'APPROVED' : 'NOT APPROVED'}`,
-        {
-          issues: review.issues.length,
-          summary: review.finalSummary,
-        },
-      );
-
-      return review.approved;
-    }
-
-    this.logger.warn('Reviewer agent failed — auto-approving');
-    return true;
-  }
-
-  private async finalize(
-    state: TaskState,
-    sandboxCwd: string,
-  ): Promise<void> {
-    const diffResult = await gitDiffTool.execute({ cwd: sandboxCwd });
-    if (diffResult.success && diffResult.data) {
-      state.diff = diffResult.data.diff;
-    }
-
-    await this.saveTaskLog(state);
-  }
+  // (Removed internal methods)
 
   // ── Failure Handling ───────────────────────────────────────────
 

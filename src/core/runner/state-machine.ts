@@ -38,10 +38,10 @@ export class StateMachine {
   /**
    * Execute a task step with state transition and event emission.
    */
-  async executeStep(
+  async executeStep<T>(
     targetState: TaskStatus,
-    fn: () => Promise<void>,
-  ): Promise<void> {
+    fn: () => Promise<T>,
+  ): Promise<T> {
     if (this.checkCancellation?.()) {
       throw new Error('Task was cancelled by user');
     }
@@ -54,13 +54,15 @@ export class StateMachine {
     this.logger.info(`Step: ${targetState}`);
 
     try {
-      await fn();
+      const result = await fn();
       
       globalEventBus.emitProgress(
         this.state.id,
         targetState,
         this.state.editPass / this.state.maxEditPasses,
       );
+
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const code =

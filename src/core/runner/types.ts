@@ -124,3 +124,12 @@ export interface TaskResult {
   error?: string;
   providerSummary: string;
 }
+
+export interface StepContext {
+  state: TaskState;
+  config: TaskRunnerConfig;
+  executionContext: any; // Using any for now to avoid circular dependency
+  router?: ProviderRouter;
+  logger: TaskLogger;
+  sandboxCwd?: string;
+}
