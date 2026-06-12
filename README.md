@@ -75,7 +75,7 @@ User Request → File Picker → Planner → Editor → Reviewer → Final Repor
 - **7 CLI commands** — `init`, `status`, `run`, `providers`, `dashboard`, `explain`, `undo` — built with Commander.
 - **Sequential Task Queue** — SQLite task queue replacing the single-task execution lock, allowing background sequencing of tasks.
 - **Native Provider Adapters** — Custom adapters for Google Gemini and Anthropic Claude messages APIs.
-- **Interactive Local Dashboard Web UI** — A beautiful dark/light-mode glassmorphic interface styled with custom Vanilla CSS variables, displaying real-time task nodes, cost estimators, token trackers, and side-by-side parsed code diffs.
+- **Interactive Local Dashboard Web UI** — A beautiful dark/light-mode glassmorphic interface styled with custom Vanilla CSS variables. Features a dual-mode toggle switch between "Dev Mode" (displaying real-time task nodes, cost estimators, token trackers, and side-by-side parsed code diffs) and "Vibe Mode" (providing simplified plain-English changes, action templates, API key managers, and one-click Keep/Undo controls for non-technical users).
 - **Task Console and Queue Control** — Allows triggering coding tasks directly from the dashboard UI, backed by background execution queues.
 - **Context File Selector** — Includes an interactive workspace file checklist to let users manually include/exclude file contexts before launching a task.
 - **User-Space Shadow Sandbox** — A lightweight, zero-install workspace sandboxing mechanism that uses NTFS junctions/symlinks to expose dependencies (like `node_modules` and `.venv`) in 0 extra bytes of storage. All edits and test runs are isolated in the sandbox, copying back only successfully approved files to the host.
