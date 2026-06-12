@@ -464,6 +464,32 @@ export function createDashboardCommand(): Command {
             }
           }
 
+          // Serve static assets from the dashboard folder
+          if (url.pathname.startsWith('/ui/')) {
+            const assetPath = resolve(__dirname, '../dashboard', `.${url.pathname}`);
+            if (existsSync(assetPath)) {
+              try {
+                const content = readFileSync(assetPath);
+                let contentType = 'text/plain';
+                if (url.pathname.endsWith('.css')) {
+                  contentType = 'text/css';
+                } else if (url.pathname.endsWith('.js')) {
+                  contentType = 'application/javascript';
+                } else if (url.pathname.endsWith('.svg')) {
+                  contentType = 'image/svg+xml';
+                }
+                return new Response(content, {
+                  headers: { 'Content-Type': contentType, ...corsHeaders },
+                });
+              } catch (err) {
+                return new Response(
+                  `Error reading asset: ${String(err)}`,
+                  { status: 500 },
+                );
+              }
+            }
+          }
+
           // Serve HTML dashboard
           if (url.pathname === '/' || url.pathname === '/index.html') {
             const htmlPath = resolve(__dirname, '../dashboard/index.html');
