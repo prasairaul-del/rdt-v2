@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { editorAgent } from '../../src/agents/editor-agent';
 import type { AgentInput } from '../../src/agents/types';
 import type { RdtConfig } from '../../src/config/schema';
-import type { ReviewResult, TaskState } from '../../src/core/task-state';
+import type { TaskState } from '../../src/core/task-state';
+import type { ReviewResult } from '../../src/core/runner/types';
 import { MockProvider } from '../../src/providers/mock-provider';
 import { ProviderRouter } from '../../src/router/provider-router';
 

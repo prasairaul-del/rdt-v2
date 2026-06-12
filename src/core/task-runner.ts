@@ -14,6 +14,9 @@ import {
   type TaskResult,
   type StepContext,
 } from './runner/types';
+import { ProviderRouter } from '../router/provider-router';
+import { ProviderStateStore } from '../storage/provider-state-store';
+import { TaskLogStore } from '../storage/task-log-store';
 
 // Steps
 import { baselineStep } from './runner/steps/baseline-step';

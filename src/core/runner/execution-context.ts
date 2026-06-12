@@ -1,10 +1,11 @@
 import { execSync, spawnSync } from 'node:child_process';
 import { loadConfig } from '../../config/load-config';
 import type { RdtConfig } from '../../config/schema';
-import { buildContext, type ProjectContext } from '../../project-context/context-builder';
+import { buildContext, type TaskContext } from '../../project-context/context-builder';
 import { detectProject } from '../../project-context/detect-project';
 import { loadInstructions } from '../../project-context/load-instructions';
-import { scanRepo, type RepoMap } from '../../project-context/repo-scanner';
+import { scanRepo } from '../../project-context/repo-scanner';
+import type { RepoMap } from '../../project-context/repo-map';
 import type { ProviderRouter } from '../../router/provider-router';
 import { Sandbox } from '../../tools/sandbox';
 import { TaskLogger } from '../logger';
@@ -262,7 +263,7 @@ export class ExecutionContext {
   /**
    * Build the project context used by agents.
    */
-  buildAgentContext(request: string): ProjectContext {
+  buildAgentContext(request: string): TaskContext {
     const projectInfo = detectProject(this.projectRoot);
     const instructions = loadInstructions(this.projectRoot);
     const repoMap = this._repoMap ?? scanRepo(this.projectRoot);

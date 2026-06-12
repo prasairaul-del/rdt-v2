@@ -11,8 +11,12 @@ import { TaskLogger } from '../../src/core/logger';
 import {
   addTaskError,
   createTaskState,
-  transitionState,
 } from '../../src/core/task-state';
+import { StateMachine } from '../../src/core/runner/state-machine';
+
+function transitionState(state: any, to: any) {
+  new StateMachine(state, new TaskLogger()).transition(to);
+}
 
 // ── Task State Machine ───────────────────────────────────────────
 

@@ -5,8 +5,13 @@ import { TaskRunner } from '../../src/core/task-runner';
 import {
   addTaskError,
   createTaskState,
-  transitionState,
 } from '../../src/core/task-state';
+import { StateMachine } from '../../src/core/runner/state-machine';
+import { TaskLogger } from '../../src/core/logger';
+
+function transitionState(state: any, to: any) {
+  new StateMachine(state, new TaskLogger()).transition(to);
+}
 import type { TaskState } from '../../src/core/task-state';
 
 // Mock bun:sqlite since vitest can't resolve Bun built-in modules.
