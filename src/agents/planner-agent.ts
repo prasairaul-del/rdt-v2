@@ -32,6 +32,20 @@ export async function plannerAgent(
     // Try to use the provider router for AI-powered plan generation
     if (config.router?.route) {
       try {
+        let userContent = `Task: ${request}\n\nSelected files context:\n${(input.files ?? [])
+          .slice(0, 10)
+          .map((f) => `- ${f.path}: ${f.reason}`)
+          .join('\n')}`;
+
+        if (task.reviewResults && task.reviewResults.length > 0) {
+          const lastReview = task.reviewResults[task.reviewResults.length - 1];
+          userContent += `\n\n### PREVIOUS IMPLEMENTATION ATTEMPT FAILURE\n` +
+            `The previous implementation attempt did not pass checks. You must revise your plan to address this.\n\n` +
+            `Last Plan summary: ${task.planSummary || 'None'}\n` +
+            `Issues identified by reviewer:\n${lastReview.issues.map((i) => `- ${i}`).join('\n')}\n` +
+            `Required fixes:\n${lastReview.requiredFixes.map((f) => `- ${f}`).join('\n')}`;
+        }
+
         const messages: CompletionMessage[] = [
           {
             role: 'system',
@@ -53,13 +67,7 @@ Keep steps concrete and actionable.`,
           },
           {
             role: 'user',
-            content: `Task: ${request}
-
-Selected files context:
-${(input.files ?? [])
-  .slice(0, 10)
-  .map((f) => `- ${f.path}: ${f.reason}`)
-  .join('\n')}`,
+            content: userContent,
           },
         ];
 

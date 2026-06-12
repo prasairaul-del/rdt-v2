@@ -99,17 +99,17 @@ export class TaskRunner {
         await baselineStep(stepContext);
       });
 
+      // ── STEP 2: LOAD CONTEXT ────────────────────────────────────
+      await stateMachine.executeStep('loading_context', async () => {
+        await contextStep(stepContext);
+      });
+
       // Setup Git feature branch if configured
       await this.executionContext.setupFeatureBranch(state);
 
       // Initialize isolated sandbox
       sandboxCwd = await this.executionContext.initSandbox(state.id);
       stepContext.sandboxCwd = sandboxCwd;
-
-      // ── STEP 2: LOAD CONTEXT ────────────────────────────────────
-      await stateMachine.executeStep('loading_context', async () => {
-        await contextStep(stepContext);
-      });
 
       // ── STEP 3: SCAN REPO ───────────────────────────────────────
       await stateMachine.executeStep('scanning_repo', async () => {
@@ -143,13 +143,15 @@ export class TaskRunner {
 
         // Check if we need another pass
         if (!approved && state.editPass < state.maxEditPasses) {
-          stateMachine.transition('fixing');
-          this.logger.info(
-            `Edit pass ${state.editPass} not approved — moving to fixing`,
-            {
-              issues: state.errors.filter(e => e.state === 'reviewing').length,
-            },
-          );
+          await stateMachine.executeStep('fixing', async () => {
+            this.logger.info(
+              `Edit pass ${state.editPass} not approved — re-planning...`,
+              {
+                issues: state.errors.filter(e => e.state === 'reviewing').length,
+              },
+            );
+            await planStep(stepContext);
+          });
         } else if (approved) {
           this.logger.info('Review approved');
         } else {
@@ -190,7 +192,17 @@ export class TaskRunner {
   }
 
   // ── Step Implementations ───────────────────────────────────────
-  // (Removed internal methods)
+  async editFiles(state: TaskState): Promise<void> {
+    const stepContext: StepContext = {
+      state,
+      config: this.config,
+      executionContext: this.executionContext,
+      router: this.router,
+      logger: this.logger,
+      sandboxCwd: process.cwd(),
+    };
+    await editStep(stepContext);
+  }
 
   // ── Failure Handling ───────────────────────────────────────────
 
