@@ -35,12 +35,15 @@ export function scanRepo(
 
   function shouldIgnore(relPath: string): boolean {
     const segments = relPath.split(/[/\\]/);
+    const normRelPath = relPath.replace(/\\/g, '/');
     // Check if any ignore pattern matches a complete path prefix or segment
     for (const pattern of ignorePatterns) {
+      const normPattern = pattern.replace(/\\/g, '/');
       if (
-        relPath === pattern ||
-        relPath.startsWith(`${pattern}/`) ||
-        relPath.startsWith(`${pattern}\\`)
+        normRelPath === normPattern ||
+        normRelPath.startsWith(`${normPattern}/`) ||
+        normRelPath.includes(`/${normPattern}/`) ||
+        normRelPath.endsWith(`/${normPattern}`)
       )
         return true;
       if (segments.some((s) => s === pattern)) return true;

@@ -68,6 +68,7 @@ export interface TaskState {
     rdtTouchedFiles: string[];
   };
   selectedFiles?: SelectedFile[];
+  planSummary?: string;
   plan?: Plan;
   editResults?: EditResult[];
   reviewResults?: ReviewResult[];

@@ -2,6 +2,15 @@ import { execSync, spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskRunner } from '../../src/core/task-runner';
 
+import { baselineStep } from '../../src/core/runner/steps/baseline-step';
+import { contextStep } from '../../src/core/runner/steps/context-step';
+import { scanStep } from '../../src/core/runner/steps/scan-step';
+import { pickStep } from '../../src/core/runner/steps/pick-step';
+import { planStep } from '../../src/core/runner/steps/plan-step';
+import { editStep } from '../../src/core/runner/steps/edit-step';
+import { reviewStep } from '../../src/core/runner/steps/review-step';
+import { finalizeStep } from '../../src/core/runner/steps/finalize-step';
+
 // Mock node:child_process
 vi.mock('node:child_process', () => {
   const execMock = vi.fn((cmd: string) => {
@@ -55,11 +64,66 @@ vi.mock('../../src/config/load-config', () => {
   };
 });
 
+// Mock modular runner steps
+vi.mock('../../src/core/runner/steps/baseline-step', () => ({
+  baselineStep: vi.fn().mockImplementation(async (context) => {
+    context.state.baselines = {
+      headHash: 'mock-commit-hash',
+      dirtyFiles: [],
+      rdtTouchedFiles: [],
+    };
+  }),
+}));
+vi.mock('../../src/core/runner/steps/context-step', () => ({
+  contextStep: vi.fn().mockImplementation(async (context) => {
+    await context.executionContext.load();
+    if (context.executionContext.config) {
+      context.config.rdtConfig = context.executionContext.config;
+    }
+  }),
+}));
+vi.mock('../../src/core/runner/steps/scan-step', () => ({
+  scanStep: vi.fn(),
+}));
+vi.mock('../../src/core/runner/steps/pick-step', () => ({
+  pickStep: vi.fn(),
+}));
+vi.mock('../../src/core/runner/steps/plan-step', () => ({
+  planStep: vi.fn().mockImplementation(async (context) => {
+    context.state.plan = { steps: [] };
+  }),
+}));
+vi.mock('../../src/core/runner/steps/edit-step', () => ({
+  editStep: vi.fn().mockImplementation(async (context) => {
+    context.state.changedFiles = ['src/index.ts'];
+  }),
+}));
+vi.mock('../../src/core/runner/steps/review-step', () => ({
+  reviewStep: vi.fn().mockResolvedValue(true),
+}));
+vi.mock('../../src/core/runner/steps/finalize-step', () => ({
+  finalizeStep: vi.fn(),
+}));
+
 describe('Git Feature Branch Workflow', () => {
   let runner: TaskRunner;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    
+    // Set default mock implementations
+    vi.mocked(baselineStep).mockImplementation(async (context) => {
+      context.state.baselines = {
+        headHash: 'mock-commit-hash',
+        dirtyFiles: [],
+        rdtTouchedFiles: [],
+      };
+    });
+    vi.mocked(editStep).mockImplementation(async (context) => {
+      context.state.changedFiles = ['src/index.ts'];
+    });
+    vi.mocked(reviewStep).mockResolvedValue(true);
+
     runner = new TaskRunner({
       projectRoot: '/mock/project',
       rdtConfig: {
@@ -100,24 +164,6 @@ describe('Git Feature Branch Workflow', () => {
         agents: {},
       },
     });
-
-    // Mock internal methods of runner that require real agent executions
-    (runner as any).captureBaseline = vi.fn().mockImplementation((state) => {
-      state.baselines = {
-        headHash: 'mock-commit-hash',
-        dirtyFiles: [],
-        rdtTouchedFiles: [],
-      };
-    });
-    (runner as any).loadProjectContext = vi.fn();
-    (runner as any).scanRepository = vi.fn();
-    (runner as any).selectFiles = vi.fn();
-    (runner as any).createPlan = vi.fn();
-    (runner as any).editFiles = vi.fn().mockImplementation((state) => {
-      state.changedFiles = ['src/index.ts'];
-    });
-    (runner as any).reviewChanges = vi.fn().mockResolvedValue(true);
-    (runner as any).finalize = vi.fn();
   });
 
   it('should checkout feature branch on run, commit, and checkout back to original branch on success', async () => {
@@ -157,9 +203,7 @@ describe('Git Feature Branch Workflow', () => {
 
   it('should checkout original branch and delete temporary feature branch on run failure', async () => {
     // Force editFiles to throw an error, causing a run failure
-    (runner as any).editFiles = vi
-      .fn()
-      .mockRejectedValue(new Error('Editor crashed'));
+    vi.mocked(editStep).mockRejectedValueOnce(new Error('Editor crashed'));
 
     const result = await runner.run('failing task');
     expect(result.success).toBe(false);

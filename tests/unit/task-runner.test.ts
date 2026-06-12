@@ -1,13 +1,11 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { TaskRunner } from '../../src/core/task-runner';
-import {
-  addTaskError,
-  createTaskState,
-} from '../../src/core/task-state';
-import { StateMachine } from '../../src/core/runner/state-machine';
+import { agentRegistry } from '../../src/agents/agent-registry';
 import { TaskLogger } from '../../src/core/logger';
+import { StateMachine } from '../../src/core/runner/state-machine';
+import { TaskRunner } from '../../src/core/task-runner';
+import { addTaskError, createTaskState } from '../../src/core/task-state';
 
 function transitionState(state: any, to: any) {
   new StateMachine(state, new TaskLogger()).transition(to);
@@ -166,6 +164,42 @@ describe('State machine integration', () => {
     expect(result).toHaveProperty('diff');
     expect(result).toHaveProperty('error');
     expect(result).toHaveProperty('providerSummary');
+  });
+
+  it('should fail and throw an error when edit/review loop finishes and approved is false', async () => {
+    const runner = new TaskRunner({
+      projectRoot: process.cwd(),
+    });
+
+    const originalReviewer = agentRegistry.get('reviewer');
+    agentRegistry.register({
+      name: 'reviewer',
+      description: 'Mocked reviewer that always rejects',
+      execute: async () => ({
+        success: true,
+        result: {
+          approved: false,
+          issues: ['Mocked rejection'],
+          finalSummary: 'Mocked review failure',
+        },
+        modelUsed: 'mock',
+        providerUsed: 'mock',
+        toolCalls: [],
+      }),
+    });
+
+    try {
+      const result = await runner.run('test failing review');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain(
+        'Task was not approved after maximum edit passes',
+      );
+      expect(result.state.status).toContain('failed');
+    } finally {
+      if (originalReviewer) {
+        agentRegistry.register(originalReviewer);
+      }
+    }
   });
 });
 

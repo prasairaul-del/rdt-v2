@@ -1,8 +1,12 @@
+import { existsSync, mkdirSync, copyFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { agentRegistry } from '../../../agents/agent-registry';
 import type { EditorAgentConfig } from '../../../agents/editor-agent';
 import { addTaskError } from '../../task-state';
 import type { ProviderRouter } from '../../../router/provider-router';
 import type { StepContext } from '../types';
+import { Sandbox } from '../../../tools/sandbox';
+import { testRunnerTool } from '../../../tools/test-runner';
 
 /**
  * Step: Editing files to implement the plan.
@@ -22,6 +26,10 @@ export async function editStep(context: StepContext): Promise<void> {
     return;
   }
 
+  const projectRoot = executionContext.config?.projectRoot ?? sandboxCwd;
+
+  logger.info('Starting parallel edit trials to evaluate best fix...');
+
   const editorConfig: EditorAgentConfig = {
     router: router ?? ({} as ProviderRouter),
     policyName:
@@ -30,15 +38,75 @@ export async function editStep(context: StepContext): Promise<void> {
     cwd: sandboxCwd,
   };
 
-  logger.info('Starting edit trial to generate changes...');
+  const originalCwd = process.cwd();
 
-  const res = await editor.execute(
-    { task: state, plan: state.plan!, project: agentContext },
-    editorConfig,
-  );
+  // --- TRIAL 1 ---
+  const sandbox1 = new Sandbox(projectRoot, `${state.id}-trial-1`);
+  let trial1Passed = false;
+  let trial1Result: any = null;
 
-  if (res.success && res.result) {
-    const editResult = res.result as {
+  try {
+    await sandbox1.init();
+    process.chdir(sandbox1.sandboxPath);
+    logger.info(`Running Edit Trial 1 in: ${sandbox1.sandboxPath}`);
+    const res = await editor.execute(
+      { task: state, plan: state.plan!, project: agentContext },
+      { ...editorConfig, cwd: sandbox1.sandboxPath },
+    );
+    if (res.success && res.result) {
+      trial1Result = res.result;
+      const testRes = await testRunnerTool.execute({ cwd: sandbox1.sandboxPath });
+      trial1Passed = testRes.success && (testRes.data?.passed ?? false);
+      logger.info(`Trial 1 test result: ${trial1Passed ? 'PASSED' : 'FAILED'}`);
+    }
+  } catch (err) {
+    logger.warn('Edit Trial 1 failed:', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // --- TRIAL 2 ---
+  const sandbox2 = new Sandbox(projectRoot, `${state.id}-trial-2`);
+  let trial2Passed = false;
+  let trial2Result: any = null;
+
+  try {
+    await sandbox2.init();
+    process.chdir(sandbox2.sandboxPath);
+    logger.info(`Running Edit Trial 2 in: ${sandbox2.sandboxPath}`);
+    const res = await editor.execute(
+      { task: state, plan: state.plan!, project: agentContext },
+      { ...editorConfig, cwd: sandbox2.sandboxPath },
+    );
+    if (res.success && res.result) {
+      trial2Result = res.result;
+      const testRes = await testRunnerTool.execute({ cwd: sandbox2.sandboxPath });
+      trial2Passed = testRes.success && (testRes.data?.passed ?? false);
+      logger.info(`Trial 2 test result: ${trial2Passed ? 'PASSED' : 'FAILED'}`);
+    }
+  } catch (err) {
+    logger.warn('Edit Trial 2 failed:', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Restore directory back to main sandbox
+  process.chdir(originalCwd);
+
+  // Evaluate trials
+  let selectedSandbox = sandbox1;
+  let selectedResult = trial1Result;
+
+  if (trial2Passed && !trial1Passed) {
+    logger.info('Selecting Trial 2 (tests passed, Trial 1 failed)');
+    selectedSandbox = sandbox2;
+    selectedResult = trial2Result;
+  } else {
+    logger.info('Selecting Trial 1 as primary candidate');
+  }
+
+  if (selectedResult && selectedResult.changedFiles) {
+    const editResult = selectedResult as {
       changedFiles: string[];
       diff: string;
       needsReview: boolean;
@@ -57,16 +125,30 @@ export async function editStep(context: StepContext): Promise<void> {
       ];
     }
 
-    logger.info('Edits applied to sandbox', {
+    // Copy files from winner sandbox to main sandboxCwd
+    for (const file of editResult.changedFiles) {
+      const srcFile = join(selectedSandbox.sandboxPath, file);
+      const destFile = join(sandboxCwd, file);
+      if (existsSync(srcFile)) {
+        mkdirSync(dirname(destFile), { recursive: true });
+        copyFileSync(srcFile, destFile);
+      }
+    }
+
+    logger.info('Selected trial edits applied to sandbox', {
       files: editResult.changedFiles.length,
       needsReview: editResult.needsReview,
     });
   } else {
     addTaskError(
       state,
-      'Editor agent failed',
+      'All editor trials failed',
       'EDITOR_FAILED',
       'recoverable',
     );
   }
+
+  // Cleanup trial sandboxes
+  await sandbox1.destroy();
+  await sandbox2.destroy();
 }

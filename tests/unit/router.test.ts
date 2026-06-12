@@ -182,6 +182,52 @@ describe('model-policy', () => {
     expect(result.some((m) => m.providerId === 'ollama')).toBe(true);
   });
 
+  it('should sort models by cost as a secondary sort key when preference scores are equal', () => {
+    const policy = { prefer: ['*/*'], max_cost: 'high' as const };
+    const modelsWithDifferentCosts: ProviderModelState[] = [
+      {
+        providerId: 'provider-high-cost',
+        modelId: 'm1',
+        enabled: true,
+        quality: 'high',
+        cost: 'high',
+        supportsTools: true,
+        supportsJson: true,
+        requestsThisMinute: 0,
+        requestsToday: 0,
+      },
+      {
+        providerId: 'provider-free-cost',
+        modelId: 'm2',
+        enabled: true,
+        quality: 'low',
+        cost: 'free',
+        supportsTools: true,
+        supportsJson: true,
+        requestsThisMinute: 0,
+        requestsToday: 0,
+      },
+      {
+        providerId: 'provider-medium-cost',
+        modelId: 'm3',
+        enabled: true,
+        quality: 'medium',
+        cost: 'medium',
+        supportsTools: true,
+        supportsJson: true,
+        requestsThisMinute: 0,
+        requestsToday: 0,
+      },
+    ];
+    const result = matchModels(policy, modelsWithDifferentCosts, {
+      needsTools: false,
+      needsJson: false,
+    });
+    expect(result[0].cost).toBe('free');
+    expect(result[1].cost).toBe('medium');
+    expect(result[2].cost).toBe('high');
+  });
+
   it('should handle hasCapability correctly', () => {
     const autoModel: ProviderModelState = {
       providerId: 'p1',

@@ -59,7 +59,14 @@ function sortByPreference(
     return { model: m, score: idx === -1 ? 999 : idx };
   });
 
-  scored.sort((a, b) => a.score - b.score);
+  scored.sort((a, b) => {
+    if (a.score !== b.score) {
+      return a.score - b.score;
+    }
+    const costA = COST_ORDER[a.model.cost] ?? 99;
+    const costB = COST_ORDER[b.model.cost] ?? 99;
+    return costA - costB;
+  });
   return scored.map((s) => s.model);
 }
 

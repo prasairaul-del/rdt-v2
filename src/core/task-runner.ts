@@ -1,32 +1,25 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { ProviderRouter } from '../router/provider-router';
+import { ProviderStateStore } from '../storage/provider-state-store';
+import { TaskLogStore } from '../storage/task-log-store';
 import { globalEventBus } from './events';
 import { TaskLogger } from './logger';
 import { ExecutionContext } from './runner/execution-context';
 import { StateMachine } from './runner/state-machine';
-import {
-  type TaskState,
-  createTaskState,
-} from './task-state';
-import {
-  type TaskRunnerConfig,
-  type TaskResult,
-  type StepContext,
-} from './runner/types';
-import { ProviderRouter } from '../router/provider-router';
-import { ProviderStateStore } from '../storage/provider-state-store';
-import { TaskLogStore } from '../storage/task-log-store';
+import type { StepContext, TaskResult, TaskRunnerConfig } from './runner/types';
+import { type TaskState, createTaskState } from './task-state';
 
 // Steps
 import { baselineStep } from './runner/steps/baseline-step';
 import { contextStep } from './runner/steps/context-step';
-import { scanStep } from './runner/steps/scan-step';
+import { editStep } from './runner/steps/edit-step';
+import { finalizeStep } from './runner/steps/finalize-step';
 import { pickStep } from './runner/steps/pick-step';
 import { planStep } from './runner/steps/plan-step';
-import { editStep } from './runner/steps/edit-step';
 import { reviewStep } from './runner/steps/review-step';
-import { finalizeStep } from './runner/steps/finalize-step';
+import { scanStep } from './runner/steps/scan-step';
 
 // ── Task Runner ──────────────────────────────────────────────────
 
@@ -49,7 +42,7 @@ export class TaskRunner {
       config.logStore ??
       new TaskLogStore(resolve(config.projectRoot, '.rdt', 'tasks.db'));
     this.logger = config.logger ?? new TaskLogger();
-    
+
     // Initialize provider router from config if not provided externally
     if (!config.providerRouter && config.rdtConfig) {
       const router = new ProviderRouter(config.rdtConfig);
@@ -81,7 +74,11 @@ export class TaskRunner {
     this.logger.info('Task created', { id: state.id, request });
     globalEventBus.emit('task:created', state.id, { request });
 
-    const stateMachine = new StateMachine(state, this.logger, this.config.checkCancellation);
+    const stateMachine = new StateMachine(
+      state,
+      this.logger,
+      this.config.checkCancellation,
+    );
     let sandboxCwd: string | undefined;
     let result: TaskResult;
 
@@ -147,7 +144,8 @@ export class TaskRunner {
             this.logger.info(
               `Edit pass ${state.editPass} not approved — re-planning...`,
               {
-                issues: state.errors.filter(e => e.state === 'reviewing').length,
+                issues: state.errors.filter((e) => e.state === 'reviewing')
+                  .length,
               },
             );
             await planStep(stepContext);
@@ -157,6 +155,10 @@ export class TaskRunner {
         } else {
           this.logger.warn('Max edit passes reached without approval');
         }
+      }
+
+      if (!approved) {
+        throw new Error('Task was not approved after maximum edit passes');
       }
 
       // ── STEP 9: FINALIZE ────────────────────────────────────────
@@ -228,10 +230,10 @@ export class TaskRunner {
       try {
         stateMachine.transition('rolling_back');
         this.logger.info('Rolling back RDT-touched files...');
-        
+
         // Use ExecutionContext for rollback (via git checkout)
         await this.executionContext.restoreBranch(state, true);
-        
+
         stateMachine.transition('failed_clean');
         this.logger.info('Rollback succeeded — state is FAILED_CLEAN');
       } catch (rollbackErr) {
