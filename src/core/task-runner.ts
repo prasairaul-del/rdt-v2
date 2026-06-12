@@ -7,12 +7,8 @@ import { agentRegistry } from '../agents/agent-registry';
 import type { EditorAgentConfig } from '../agents/editor-agent';
 import type { PlannerAgentConfig } from '../agents/planner-agent';
 import type { ReviewerAgentConfig } from '../agents/reviewer-agent';
-import { loadConfig, resolveConfigPath } from '../config/load-config';
+import { resolveConfigPath } from '../config/load-config';
 import type { RdtConfig } from '../config/schema';
-import { buildContext } from '../project-context/context-builder';
-import { detectProject } from '../project-context/detect-project';
-import { loadInstructions } from '../project-context/load-instructions';
-import { scanRepo } from '../project-context/repo-scanner';
 import { ProviderRouter } from '../router/provider-router';
 import { ProviderStateStore } from '../storage/provider-state-store';
 import { TaskLogStore } from '../storage/task-log-store';
@@ -21,6 +17,8 @@ import { Sandbox } from '../tools/sandbox';
 import { testRunnerTool } from '../tools/test-runner';
 import { globalEventBus } from './events';
 import { TaskLogger } from './logger';
+import { ExecutionContext } from './runner/execution-context';
+import { StateMachine } from './runner/state-machine';
 import {
   type TaskState,
   type TaskStatus,
@@ -59,6 +57,7 @@ export class TaskRunner {
   private stateStore: ProviderStateStore;
   private logStore: TaskLogStore;
   private logger: TaskLogger;
+  private executionContext: ExecutionContext;
 
   constructor(config: TaskRunnerConfig) {
     this.config = config;
@@ -67,6 +66,7 @@ export class TaskRunner {
       config.logStore ??
       new TaskLogStore(resolve(config.projectRoot, '.rdt', 'tasks.db'));
     this.logger = config.logger ?? new TaskLogger();
+    
     // Initialize provider router from config if not provided externally
     if (!config.providerRouter && config.rdtConfig) {
       const router = new ProviderRouter(config.rdtConfig);
@@ -75,6 +75,12 @@ export class TaskRunner {
     } else {
       this.router = config.providerRouter;
     }
+
+    this.executionContext = new ExecutionContext(
+      config.projectRoot,
+      this.logger,
+      this.router,
+    );
   }
 
   /**
@@ -92,7 +98,7 @@ export class TaskRunner {
     this.logger.info('Task created', { id: state.id, request });
     globalEventBus.emit('task:created', state.id, { request });
 
-    const originalCwd = process.cwd();
+    const stateMachine = new StateMachine(state, this.logger, this.config.checkCancellation);
     const sandbox = new Sandbox(this.config.projectRoot, state.id);
     let sandboxInitialized = false;
     let originalBranch: string | null = null;
@@ -101,9 +107,9 @@ export class TaskRunner {
     try {
       // ── STEP 1: CAPTURE BASELINE ────────────────────────────────
       // Captured on host workspace first
-      await this.executeStep(state, 'capturing_baseline', async () => {
+      await stateMachine.executeStep('capturing_baseline', async () => {
         this.logger.info('Capturing git baseline...');
-        await this.captureBaseline(state);
+        state.baselines = await this.executionContext.captureBaseline();
         this.logger.info('Baseline captured', {
           hasGit: !!state.baselines?.headHash,
           dirtyFiles: state.baselines?.dirtyFiles.length ?? 0,
@@ -146,28 +152,33 @@ export class TaskRunner {
       this.logger.info(`Sandbox active. Temporary workspace: ${sandboxCwd}`);
 
       // ── STEP 2: LOAD CONTEXT ────────────────────────────────────
-      await this.executeStep(state, 'loading_context', async () => {
+      await stateMachine.executeStep('loading_context', async () => {
         this.logger.info('Loading project context...');
-        await this.loadProjectContext(state);
+        await this.executionContext.load();
+        // Update local config reference if it changed
+        if (this.executionContext.config) {
+          this.config.rdtConfig = this.executionContext.config;
+        }
         this.logger.info('Context loaded');
       });
 
       // ── STEP 3: SCAN REPO ───────────────────────────────────────
-      await this.executeStep(state, 'scanning_repo', async () => {
+      await stateMachine.executeStep('scanning_repo', async () => {
         this.logger.info('Scanning repository...');
-        await this.scanRepository(state);
+        await this.executionContext.scan();
+        await this.executionContext.indexForSearch();
         this.logger.info('Repository scanned');
       });
 
       // ── STEP 4: SELECT FILES ────────────────────────────────────
-      await this.executeStep(state, 'selecting_files', async () => {
+      await stateMachine.executeStep('selecting_files', async () => {
         this.logger.info('Selecting relevant files...');
         await this.selectFiles(state);
         this.logger.info('Files selected', { count: state.selectedFilesCount });
       });
 
       // ── STEP 5: PLAN ────────────────────────────────────────────
-      await this.executeStep(state, 'planning', async () => {
+      await stateMachine.executeStep('planning', async () => {
         this.logger.info('Creating plan...');
         await this.createPlan(state);
         this.logger.info('Plan created', { summary: state.planSummary });
@@ -179,7 +190,7 @@ export class TaskRunner {
         state.editPass++;
 
         // EDIT — pass sandboxCwd so agents never rely on process.cwd()
-        await this.executeStep(state, 'editing', async () => {
+        await stateMachine.executeStep('editing', async () => {
           this.logger.info(
             `Edit pass ${state.editPass}/${state.maxEditPasses}...`,
           );
@@ -187,7 +198,7 @@ export class TaskRunner {
         });
 
         // REVIEW — pass sandboxCwd
-        await this.executeStep(state, 'reviewing', async () => {
+        await stateMachine.executeStep('reviewing', async () => {
           this.logger.info(
             `Reviewing pass ${state.editPass}/${state.maxEditPasses}...`,
           );
@@ -196,7 +207,7 @@ export class TaskRunner {
 
         // Check if we need another pass
         if (!approved && state.editPass < state.maxEditPasses) {
-          transitionState(state, 'fixing');
+          stateMachine.transition('fixing');
           this.logger.info(
             `Edit pass ${state.editPass} not approved — moving to fixing`,
             {
@@ -211,7 +222,7 @@ export class TaskRunner {
       }
 
       // ── STEP 9: FINALIZE ────────────────────────────────────────
-      await this.executeStep(state, 'finalizing', async () => {
+      await stateMachine.executeStep('finalizing', async () => {
         this.logger.info('Finalizing task...');
         await this.finalize(state, sandboxCwd);
       });
@@ -286,13 +297,13 @@ export class TaskRunner {
       }
 
       // ── SUCCESS ─────────────────────────────────────────────────
-      transitionState(state, 'done');
+      stateMachine.transition('done');
       this.logger.info('Task completed successfully');
 
       result = this.buildResult(state, true);
     } catch (err) {
       // Directory is never changed now — no restore needed on failure either.
-      result = await this.handleFailure(state, err);
+      result = await this.handleFailure(state, stateMachine, err);
 
       // Restore Git branch and delete unused feature branch on failure
       if (originalBranch) {
@@ -327,121 +338,10 @@ export class TaskRunner {
     return result;
   }
 
-  // ── Step Executor ──────────────────────────────────────────────
-
-  private async executeStep(
-    state: TaskState,
-    targetState: TaskStatus,
-    fn: () => Promise<void>,
-  ): Promise<void> {
-    if (this.config.checkCancellation?.()) {
-      throw new Error('Task was cancelled by user');
-    }
-    const from = state.status;
-    transitionState(state, targetState);
-    globalEventBus.emitStateChange(state.id, from, targetState);
-    try {
-      await fn();
-      globalEventBus.emitProgress(
-        state.id,
-        targetState,
-        state.editPass / state.maxEditPasses,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const code =
-        err instanceof Error && 'code' in err
-          ? (err as Error & { code: string }).code
-          : 'STEP_ERROR';
-      addTaskError(state, message, code, 'fatal');
-      throw err; // Re-throw to be caught by run()
-    }
-  }
-
   // ── Step Implementations ───────────────────────────────────────
 
-  private async captureBaseline(state: TaskState): Promise<void> {
-    const projectRoot = this.config.projectRoot;
-
-    try {
-      const headHash = execSync('git rev-parse HEAD', {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-      }).trim();
-      state.baselines = { headHash, dirtyFiles: [], rdtTouchedFiles: [] };
-    } catch {
-      // Not a git repo — that's ok if require_git_repo is false
-      state.baselines = { dirtyFiles: [], rdtTouchedFiles: [] };
-    }
-
-    // Capture dirty files
-    if (state.baselines) {
-      try {
-        const status = execSync('git status --porcelain', {
-          cwd: projectRoot,
-          encoding: 'utf-8',
-        }).trim();
-        if (status) {
-          state.baselines.dirtyFiles = status
-            .split('\n')
-            .filter((l) => l.trim())
-            .map((l) => l.slice(3).trim());
-        }
-      } catch {
-        // No git status available
-      }
-    }
-  }
-
-  private async loadProjectContext(state: TaskState): Promise<void> {
-    const projectRoot = this.config.projectRoot;
-    const configResult = loadConfig(projectRoot);
-    const instructions = loadInstructions(projectRoot);
-    const projectInfo = detectProject(projectRoot);
-    const repoMap = scanRepo(projectRoot);
-
-    // Store the loaded config
-    this.config.rdtConfig = configResult.config;
-  }
-
-  private async scanRepository(state: TaskState): Promise<void> {
-    const projectRoot = this.config.projectRoot;
-    const repoMap = scanRepo(projectRoot);
-
-    this.logger.info(
-      `Found ${repoMap.totalFiles} files in ${repoMap.totalDirs} directories`,
-    );
-
-    try {
-      const { VectorSearch } = await import('../project-context/vector-search');
-      const vectorSearch = new VectorSearch(projectRoot, this.router);
-      await vectorSearch.init();
-      this.logger.info('Indexing repository for vector search...');
-      const indexedCount = await vectorSearch.indexRepository(repoMap);
-      this.logger.info(
-        `Vector search indexing complete. Indexed/updated ${indexedCount} files.`,
-      );
-    } catch (err) {
-      this.logger.warn(
-        'Failed to build vector search index, falling back to heuristics only',
-        {
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
-    }
-  }
-
   private async selectFiles(state: TaskState): Promise<void> {
-    const projectRoot = this.config.projectRoot;
-    const projectInfo = detectProject(projectRoot);
-    const instructions = loadInstructions(projectRoot);
-    const repoMap = scanRepo(projectRoot);
-    const context = buildContext(
-      projectInfo,
-      instructions,
-      repoMap,
-      state.request,
-    );
+    const context = this.executionContext.buildAgentContext(state.request);
 
     // Use the file picker agent
     const filePicker = agentRegistry.get('file_picker');
@@ -496,16 +396,7 @@ export class TaskRunner {
   }
 
   private async createPlan(state: TaskState): Promise<void> {
-    const projectRoot = this.config.projectRoot;
-    const projectInfo = detectProject(projectRoot);
-    const instructions = loadInstructions(projectRoot);
-    const repoMap = scanRepo(projectRoot);
-    const context = buildContext(
-      projectInfo,
-      instructions,
-      repoMap,
-      state.request,
-    );
+    const context = this.executionContext.buildAgentContext(state.request);
 
     const planner = agentRegistry.get('planner');
     if (!planner) {
@@ -568,15 +459,7 @@ export class TaskRunner {
     sandboxCwd = process.cwd(),
   ): Promise<void> {
     const projectRoot = this.config.projectRoot;
-    const projectInfo = detectProject(projectRoot);
-    const instructions = loadInstructions(projectRoot);
-    const repoMap = scanRepo(projectRoot);
-    const context = buildContext(
-      projectInfo,
-      instructions,
-      repoMap,
-      state.request,
-    );
+    const context = this.executionContext.buildAgentContext(state.request);
 
     const editor = agentRegistry.get('editor');
     if (!editor) {
@@ -722,16 +605,7 @@ export class TaskRunner {
     state: TaskState,
     sandboxCwd = process.cwd(),
   ): Promise<boolean> {
-    const projectRoot = this.config.projectRoot;
-    const projectInfo = detectProject(projectRoot);
-    const instructions = loadInstructions(projectRoot);
-    const repoMap = scanRepo(projectRoot);
-    const context = buildContext(
-      projectInfo,
-      instructions,
-      repoMap,
-      state.request,
-    );
+    const context = this.executionContext.buildAgentContext(state.request);
 
     // Capture diff from the sandbox directory explicitly
     const diffResult = await gitDiffTool.execute({ cwd: sandboxCwd });
@@ -811,6 +685,7 @@ export class TaskRunner {
 
   private async handleFailure(
     state: TaskState,
+    stateMachine: StateMachine,
     err: unknown,
   ): Promise<TaskResult> {
     const message = err instanceof Error ? err.message : String(err);
@@ -829,10 +704,10 @@ export class TaskRunner {
     // Rollback if configured
     if (state.rollbackOnFailed && state.baselines?.rdtTouchedFiles.length) {
       try {
-        transitionState(state, 'rolling_back');
+        stateMachine.transition('rolling_back');
         this.logger.info('Rolling back RDT-touched files...');
         await this.rollback(state);
-        transitionState(state, 'failed_clean');
+        stateMachine.transition('failed_clean');
         this.logger.info('Rollback succeeded — state is FAILED_CLEAN');
       } catch (rollbackErr) {
         const rollbackMsg =
@@ -840,13 +715,13 @@ export class TaskRunner {
             ? rollbackErr.message
             : String(rollbackErr);
         this.logger.error(`Rollback failed: ${rollbackMsg}`);
-        transitionState(state, 'failed_dirty');
+        stateMachine.transition('failed_dirty');
       }
     } else if (state.rollbackOnFailed) {
       // No files to rollback or no baseline
-      transitionState(state, 'failed_clean');
+      stateMachine.transition('failed_clean');
     } else {
-      transitionState(state, 'failed_dirty');
+      stateMachine.transition('failed_dirty');
     }
 
     // Save failed state
