@@ -309,6 +309,54 @@ export class TaskRunner {
     }
   }
 
+  private calculateEstimatedCost(
+    providerId: string,
+    modelId: string,
+    promptTokens?: number,
+    completionTokens?: number,
+  ): number {
+    if (!promptTokens && !completionTokens) return 0;
+    const pTokens = promptTokens ?? 0;
+    const cTokens = completionTokens ?? 0;
+
+    const mId = modelId.toLowerCase();
+    const pId = providerId.toLowerCase();
+
+    // Check if it's a mini model or cheap model
+    const isMini =
+      mId.includes('mini') ||
+      mId.includes('haiku') ||
+      mId.includes('flash') ||
+      mId.includes('8b') ||
+      pId.includes('ollama') ||
+      mId.includes('llama3') ||
+      mId.includes('deepseek');
+
+    // Check if it's a premium/standard model (Claude 3.5 Sonnet, GPT-4o, GPT-4, Opus, etc.)
+    const isPremium =
+      mId.includes('sonnet') ||
+      mId.includes('gpt-4o') ||
+      mId.includes('gpt-4') ||
+      mId.includes('opus') ||
+      mId.includes('pro');
+
+    let promptRatePerM = 1.5; // fallback standard rate
+    let completionRatePerM = 7.5; // fallback standard rate
+
+    if (isMini) {
+      promptRatePerM = 0.15;
+      completionRatePerM = 0.6;
+    } else if (isPremium) {
+      promptRatePerM = 3.0;
+      completionRatePerM = 15.0;
+    }
+
+    const promptCost = (pTokens / 1_000_000) * promptRatePerM;
+    const completionCost = (cTokens / 1_000_000) * completionRatePerM;
+
+    return promptCost + completionCost;
+  }
+
   // ── Result Builder ─────────────────────────────────────────────
 
   private buildResult(
@@ -319,15 +367,49 @@ export class TaskRunner {
     const isFailedClean = state.status === 'failed_clean';
     const isFailedDirty = state.status === 'failed_dirty';
 
-    const providerSummary =
-      state.providerUsage.length > 0
-        ? state.providerUsage
-            .map(
-              (p) =>
-                `${p.agentName}: ${p.providerId}/${p.modelId}${p.error ? ` — ${p.error}` : ''}`,
-            )
-            .join('\n')
-        : 'No provider calls recorded';
+    let providerSummary = '';
+    if (state.providerUsage.length > 0) {
+      let totalLatency = 0;
+      let totalPromptTokens = 0;
+      let totalCompletionTokens = 0;
+      let totalCost = 0;
+
+      const lines = state.providerUsage.map((p) => {
+        totalLatency += p.durationMs;
+        const pTokens = p.promptTokens ?? 0;
+        const cTokens = p.completionTokens ?? 0;
+        totalPromptTokens += pTokens;
+        totalCompletionTokens += cTokens;
+
+        const cost = this.calculateEstimatedCost(
+          p.providerId,
+          p.modelId,
+          p.promptTokens,
+          p.completionTokens,
+        );
+        totalCost += cost;
+
+        const tokenStr =
+          p.promptTokens !== undefined
+            ? `${pTokens} prompt, ${cTokens} completion`
+            : 'no token data';
+
+        return `${p.agentName} (${p.providerId}/${p.modelId}):
+  Latency: ${p.durationMs}ms
+  Tokens: ${tokenStr}
+  Cost: $${cost.toFixed(6)}${p.error ? `\n  Error: ${p.error}` : ''}`;
+      });
+
+      providerSummary =
+        lines.join('\n\n') +
+        '\n\n' +
+        `Aggregated Totals:
+  Total Latency: ${totalLatency}ms
+  Total Tokens: ${totalPromptTokens + totalCompletionTokens} (${totalPromptTokens} prompt, ${totalCompletionTokens} completion)
+  Total Estimated Cost: $${totalCost.toFixed(6)}`;
+    } else {
+      providerSummary = 'No provider calls recorded';
+    }
 
     const summaryParts: string[] = [];
     if (success) {

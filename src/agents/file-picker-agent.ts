@@ -182,6 +182,19 @@ ${fileListStr}`,
           { needsTools: false, needsJson: true },
         );
 
+        if (res.success && res.response) {
+          const successAttempt = res.attempts[res.attempts.length - 1];
+          input.task.providerUsage.push({
+            agentName: 'file-picker',
+            providerId: successAttempt?.providerId ?? 'unknown',
+            modelId: successAttempt?.modelId ?? 'unknown',
+            usage: res.response.usage,
+            promptTokens: res.response.usage?.prompt_tokens,
+            completionTokens: res.response.usage?.completion_tokens,
+            durationMs: successAttempt?.durationMs ?? 0,
+          });
+        }
+
         if (res.success && res.response?.content) {
           const text = res.response.content;
           const first = text.indexOf('{');

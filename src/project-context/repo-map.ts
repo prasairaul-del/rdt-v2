@@ -2,6 +2,7 @@ export interface RepoMapEntry {
   path: string;
   type: 'file' | 'dir';
   size: number;
+  mtimeMs?: number;
 }
 
 export interface RepoMap {

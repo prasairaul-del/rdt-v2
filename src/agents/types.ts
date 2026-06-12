@@ -82,6 +82,8 @@ export interface ProviderUsageEntry {
   usage?: CompletionUsage;
   error?: string;
   durationMs: number;
+  promptTokens?: number;
+  completionTokens?: number;
 }
 
 // ── File Selection ───────────────────────────────────────────────

@@ -89,11 +89,21 @@ export function scanRepo(
 
       if (stat.isDirectory()) {
         totalDirs++;
-        entries.push({ path: relPath, type: 'dir', size: 0 });
+        entries.push({
+          path: relPath,
+          type: 'dir',
+          size: 0,
+          mtimeMs: stat.mtimeMs,
+        });
         walk(fullPath);
       } else {
         totalFiles++;
-        entries.push({ path: relPath, type: 'file', size: stat.size });
+        entries.push({
+          path: relPath,
+          type: 'file',
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+        });
       }
     }
   }

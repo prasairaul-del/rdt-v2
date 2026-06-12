@@ -96,6 +96,8 @@ Keep steps concrete and actionable.`;
             providerId: successAttempt?.providerId ?? 'unknown',
             modelId: successAttempt?.modelId ?? 'unknown',
             usage: routerResult.response.usage,
+            promptTokens: routerResult.response.usage?.prompt_tokens,
+            completionTokens: routerResult.response.usage?.completion_tokens,
             durationMs: successAttempt?.durationMs ?? 0,
           });
 

@@ -130,9 +130,27 @@ export class VectorSearch {
         hash TEXT NOT NULL,
         terms_freq TEXT NOT NULL,
         dense_vector TEXT,
+        size INTEGER,
+        mtime_ms REAL,
         last_indexed_at TEXT NOT NULL
       );
     `);
+
+    // Backwards-compatible migration to add columns if they don't exist
+    try {
+      const tableInfo = this.db
+        .query('PRAGMA table_info(files_index)')
+        .all() as any[];
+      const columns = tableInfo.map((col) => col.name);
+      if (!columns.includes('size')) {
+        this.db.exec('ALTER TABLE files_index ADD COLUMN size INTEGER;');
+      }
+      if (!columns.includes('mtime_ms')) {
+        this.db.exec('ALTER TABLE files_index ADD COLUMN mtime_ms REAL;');
+      }
+    } catch (err) {
+      // Ignore migration errors
+    }
   }
 
   async indexRepository(repoMap: RepoMap): Promise<number> {
@@ -147,6 +165,24 @@ export class VectorSearch {
       // Skip files larger than 500KB to prevent indexing huge bundles
       if (entry.size > 500_000) continue;
 
+      // Check cache using size and mtimeMs
+      const cached = this.db
+        .query('SELECT hash, size, mtime_ms FROM files_index WHERE path = ?')
+        .get(entry.path) as {
+        hash: string;
+        size: number | null;
+        mtime_ms: number | null;
+      } | null;
+
+      if (
+        cached &&
+        cached.size === entry.size &&
+        entry.mtimeMs !== undefined &&
+        cached.mtime_ms === entry.mtimeMs
+      ) {
+        continue;
+      }
+
       let content: string;
       try {
         content = readFileSync(fullPath, 'utf-8');
@@ -156,11 +192,14 @@ export class VectorSearch {
 
       const hash = createHash('sha256').update(content).digest('hex');
 
-      // Check cache
-      const cached = this.db
-        .query('SELECT hash FROM files_index WHERE path = ?')
-        .get(entry.path) as { hash: string } | null;
       if (cached && cached.hash === hash) {
+        // If content is same but metadata differed, update metadata in DB to avoid reading next time
+        this.db.run(
+          'UPDATE files_index SET size = ?, mtime_ms = ? WHERE path = ?',
+          entry.size,
+          entry.mtimeMs ?? null,
+          entry.path,
+        );
         continue;
       }
 
@@ -184,12 +223,14 @@ export class VectorSearch {
       }
 
       this.db.run(
-        `INSERT OR REPLACE INTO files_index (path, hash, terms_freq, dense_vector, last_indexed_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO files_index (path, hash, terms_freq, dense_vector, size, mtime_ms, last_indexed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         entry.path,
         hash,
         JSON.stringify(termsFreq),
         denseVector ? JSON.stringify(denseVector) : null,
+        entry.size,
+        entry.mtimeMs ?? null,
         new Date().toISOString(),
       );
 
