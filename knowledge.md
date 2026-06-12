@@ -68,8 +68,9 @@ Failure: → FAILED → ROLLING_BACK → FAILED_CLEAN or FAILED_DIRTY
 - **TF-IDF Fallback**: Local keyword matching algorithm automatically acts as a zero-cost offline fallback if dense embeddings (OpenAI/Ollama) are not configured.
 
 ## Current Status
-- **227 tests passing** across 11 suites.
-- **All 5 CLI commands** implemented (init, status, run, providers, dashboard).
-- **Interactive Web UI Dashboard** completed with state transitions, token trackers, cost estimators, file context selection checklist, and parsed diff formatting.
+- **262 tests passing** across 19 suites.
+- **7 CLI commands** implemented (init, status, run, providers, dashboard, explain, undo).
+- **Interactive Web UI Dashboard** completed with state transitions, token trackers, cost estimators, file context selection checklist, parsed diff formatting, and Vibe Mode.
+- **Vibe Mode toggle** added to the dashboard, providing simplified plain-English changes, action templates, API key managers, and one-click Keep/Undo controls.
 - **Process Redirection Sandbox** implemented and verified.
 - **Git auto-commits** and **VS Code integration** supported.
