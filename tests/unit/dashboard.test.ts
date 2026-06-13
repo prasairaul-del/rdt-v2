@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDashboardCommand } from '../../src/cli/commands/dashboard';
 
 // Mock bun:sqlite since vitest can't resolve Bun built-in modules.
@@ -85,12 +88,42 @@ vi.mock('../../src/core/task-runner', () => {
 
 describe('Dashboard Server API', () => {
   let serveOptions: any = null;
+  let projectRoot = '';
+  let cwdSpy: ReturnType<typeof vi.spyOn> | null = null;
+  const originalEnv = {
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  };
 
   beforeEach(async () => {
     mockRunPromiseResolve = null;
     mockLogs.length = 0;
     mockLogs.push({ id: 'test-1', status: 'completed' });
     serveOptions = null;
+    projectRoot = mkdtempSync(join(tmpdir(), 'rdt-dashboard-'));
+    mkdirSync(join(projectRoot, '.rdt'), { recursive: true });
+    writeFileSync(
+      join(projectRoot, 'package.json'),
+      JSON.stringify(
+        {
+          name: 'demo-readiness',
+          packageManager: 'bun@1.1.0',
+          scripts: {
+            test: 'vitest run',
+            typecheck: 'tsc --noEmit',
+            lint: 'biome check .',
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    writeFileSync(join(projectRoot, 'AGENTS.md'), '# agents');
+    writeFileSync(join(projectRoot, 'knowledge.md'), '# knowledge');
+    writeFileSync(join(projectRoot, '.rdt', 'config.yaml'), 'version: 1');
+    writeFileSync(join(projectRoot, 'bun.lockb'), '');
+    cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(projectRoot);
     globalThis.Bun = {
       serve: (options: any) => {
         serveOptions = options;
@@ -103,6 +136,15 @@ describe('Dashboard Server API', () => {
     const command = createDashboardCommand();
     // Parse arguments to trigger action callback
     await command.parseAsync(['node', 'rdt', 'dashboard', '--port', '3000']);
+  });
+
+  afterEach(() => {
+    cwdSpy?.mockRestore();
+    cwdSpy = null;
+    process.env.OPENROUTER_API_KEY = originalEnv.OPENROUTER_API_KEY;
+    process.env.ANTHROPIC_API_KEY = originalEnv.ANTHROPIC_API_KEY;
+    process.env.GEMINI_API_KEY = originalEnv.GEMINI_API_KEY;
+    rmSync(projectRoot, { recursive: true, force: true });
   });
 
   it('should register Bun.serve with port 3000', () => {
@@ -133,6 +175,46 @@ describe('Dashboard Server API', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.project.name).toBe('test-project');
+  });
+
+  it('GET /api/readiness should return safe readiness metadata', async () => {
+    process.env.OPENROUTER_API_KEY = 'sk-openrouter-secret';
+    process.env.ANTHROPIC_API_KEY = '';
+    process.env.GEMINI_API_KEY = 'gemini-secret-value';
+
+    const req = new Request('http://localhost:3000/api/readiness');
+    const res = await serveOptions.fetch(req);
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.projectName).toBe('demo-readiness');
+    expect(json.packageManager).toBe('bun');
+    expect(json.scripts).toEqual({
+      test: 'bun run test',
+      typecheck: 'bun run typecheck',
+      lint: 'bun run lint',
+      build: null,
+    });
+    expect(json.providers).toEqual({
+      openrouter: true,
+      anthropic: false,
+      gemini: true,
+    });
+    expect(json.rules).toEqual({
+      agents: true,
+      knowledge: true,
+      config: true,
+    });
+    expect(json.level).toBe('ready');
+
+    const raw = JSON.stringify(json);
+    expect(raw).not.toContain('sk-openrouter-secret');
+    expect(raw).not.toContain('gemini-secret-value');
+    expect(
+      Object.values(json.providers).every(
+        (value) => typeof value === 'boolean',
+      ),
+    ).toBe(true);
   });
 
   it('GET /api/files should return repository files list', async () => {

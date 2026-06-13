@@ -900,6 +900,171 @@ header h1 {
   color: var(--text-muted);
 }
 
+.readiness-card,
+.vibe-preview-card {
+  background: rgba(13, 19, 32, 0.5);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 1.25rem;
+  margin-top: 1rem;
+}
+
+.readiness-header,
+.vibe-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.readiness-header h3,
+.vibe-preview-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.preview-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent-green);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+  border-radius: 9999px;
+  padding: 0.2rem 0.5rem;
+  white-space: nowrap;
+}
+
+.readiness-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  border-radius: 9999px;
+  padding: 0.2rem 0.5rem;
+}
+
+.readiness-ready {
+  color: var(--accent-green);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.readiness-partial {
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.readiness-needs_setup {
+  color: var(--text-muted);
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.status-unavailable {
+  color: var(--text-muted);
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.readiness-unavailable {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.readiness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.readiness-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.88rem;
+  color: var(--text-main);
+}
+
+.readiness-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  border-radius: 9999px;
+  padding: 0.18rem 0.45rem;
+  white-space: nowrap;
+}
+
+.readiness-pill.is-ready {
+  color: var(--accent-green);
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.readiness-pill.is-missing {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+}
+
+.preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.preview-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.preview-body {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.preview-check {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.74rem;
+  color: var(--accent-blue);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 9999px;
+  padding: 0.18rem 0.45rem;
+}
+
+.preview-list {
+  padding-left: 1.1rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.preview-empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 .keys-config-card {
   background: rgba(13, 19, 32, 0.5);
   border: 1px solid var(--card-border);
@@ -953,9 +1118,24 @@ header h1 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 .vibe-report-header h2 {
   font-size: 1.5rem;
+}
+.vibe-toggle {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--card-border);
+  color: var(--text-main);
+  border-radius: 9999px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.vibe-toggle:hover {
+  border-color: var(--accent-blue);
 }
 .vibe-report-summary {
   background: rgba(255, 255, 255, 0.02);
@@ -968,6 +1148,7 @@ header h1 {
 .vibe-action-buttons {
   display: flex;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 .vibe-btn {
   padding: 0.75rem 2rem;
@@ -994,4 +1175,402 @@ header h1 {
 .vibe-btn-secondary:hover {
   background: rgba(244, 63, 94, 0.25);
   transform: translateY(-1px);
+}
+
+.learn-card-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.learn-card {
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.learn-card-header {
+  margin-bottom: 0.75rem;
+}
+
+.learn-card-header h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.learn-card-header p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.learn-note {
+  font-size: 0.9rem;
+  color: var(--text-main);
+  line-height: 1.45;
+}
+
+.learn-note-next {
+  margin-top: 0.5rem;
+  color: var(--text-muted);
+}
+
+.learn-group {
+  margin-top: 0.85rem;
+}
+
+.learn-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 0.45rem;
+}
+
+.learn-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.learn-empty {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.file-tag-changed {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.learn-check-list {
+  flex-direction: column;
+}
+
+.learn-check-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.learn-check-item:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.learn-check-status {
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.18rem 0.45rem;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.learn-check-status.is-pass {
+  color: var(--accent-green);
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.learn-check-status.is-fail {
+  color: var(--accent-red);
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+}
+
+.learn-check-label {
+  font-size: 0.85rem;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.learn-check-detail {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.1rem;
+  line-height: 1.35;
+}
+
+.learn-card-error {
+  border-color: rgba(244, 63, 94, 0.25);
+}
+
+.learn-error-message {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text-main);
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.15);
+  border-radius: 10px;
+  padding: 0.8rem 0.9rem;
+}
+
+.learn-error-next {
+  margin-top: 0.65rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Power workflow surfaces for experienced developer modes */
+.power-workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.power-workflow-card,
+.power-recipe-card,
+.power-timeline-panel,
+.power-transparency-panel {
+  background: rgba(13, 19, 32, 0.56);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+
+.power-workflow-card {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.power-workflow-card.is-compact {
+  padding: 0.85rem;
+  gap: 0.6rem;
+}
+
+.power-workflow-card.is-selected,
+.power-recipe-card.is-selected,
+.power-timeline-panel.is-selected,
+.power-transparency-panel.is-selected {
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.16), 0 10px 30px
+    rgba(0, 0, 0, 0.16);
+}
+
+.power-workflow-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  align-items: center;
+}
+
+.power-workflow-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.power-workflow-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.power-recipe-card {
+  padding: 1rem 1.1rem;
+}
+
+.power-recipe-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.power-recipe-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.power-recipe-body {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.power-recipe-step {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.power-recipe-step-num {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent-blue);
+}
+
+.power-recipe-step-text {
+  font-size: 0.84rem;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.power-recipe-step-hint {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.power-timeline-panel {
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.power-timeline-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  position: relative;
+}
+
+.power-timeline-track::before {
+  content: "";
+  position: absolute;
+  left: 0.78rem;
+  top: 0.3rem;
+  bottom: 0.3rem;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    rgba(59, 130, 246, 0.55),
+    rgba(255, 255, 255, 0.06)
+  );
+}
+
+.power-timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.power-timeline-marker {
+  position: relative;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(8, 12, 22, 0.96);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.08);
+}
+
+.power-timeline-marker.is-current {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+.power-timeline-marker.is-done {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.power-timeline-content {
+  padding-bottom: 0.35rem;
+}
+
+.power-timeline-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.power-timeline-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-top: 0.15rem;
+}
+
+.power-timeline-note {
+  margin-top: 0.25rem;
+  font-size: 0.83rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.power-transparency-panel {
+  padding: 1rem;
+}
+
+.power-transparency-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 0.8rem;
+}
+
+.power-transparency-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.power-transparency-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.power-transparency-item {
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.power-transparency-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.power-transparency-value {
+  font-size: 0.88rem;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.power-transparency-value code,
+.power-workflow-desc code,
+.power-recipe-step-text code,
+.power-timeline-note code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.92em;
+  color: #dbeafe;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  border-radius: 4px;
+  padding: 0 0.3rem;
 }

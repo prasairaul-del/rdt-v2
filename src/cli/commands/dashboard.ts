@@ -9,6 +9,138 @@ import { TaskLogStore } from '../../storage/task-log-store';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+type ReadinessLevel = 'ready' | 'partial' | 'needs_setup';
+
+type ReadinessPayload = {
+  projectName: string;
+  packageManager: string;
+  scripts: {
+    test: string | null;
+    typecheck: string | null;
+    lint: string | null;
+    build: string | null;
+  };
+  providers: {
+    openrouter: boolean;
+    anthropic: boolean;
+    gemini: boolean;
+  };
+  rules: {
+    agents: boolean;
+    knowledge: boolean;
+    config: boolean;
+  };
+  level: ReadinessLevel;
+};
+
+function detectPackageManager(
+  projectRoot: string,
+  pkg?: { packageManager?: string },
+): string {
+  const fromField = pkg?.packageManager?.split('@')[0]?.trim();
+  if (fromField) return fromField;
+
+  if (
+    existsSync(resolve(projectRoot, 'bun.lockb')) ||
+    existsSync(resolve(projectRoot, 'bun.lock'))
+  ) {
+    return 'bun';
+  }
+  if (existsSync(resolve(projectRoot, 'pnpm-lock.yaml'))) {
+    return 'pnpm';
+  }
+  if (existsSync(resolve(projectRoot, 'yarn.lock'))) {
+    return 'yarn';
+  }
+  if (existsSync(resolve(projectRoot, 'package-lock.json'))) {
+    return 'npm';
+  }
+
+  return 'unknown';
+}
+
+function scriptCommand(
+  packageManager: string,
+  scriptName: string,
+  scripts?: Record<string, string>,
+): string | null {
+  if (!scripts?.[scriptName]) return null;
+  const runner =
+    packageManager === 'bun'
+      ? 'bun run'
+      : packageManager === 'pnpm'
+        ? 'pnpm run'
+        : packageManager === 'yarn'
+          ? 'yarn run'
+          : 'npm run';
+  return `${runner} ${scriptName}`;
+}
+
+function getReadiness(projectRoot: string): ReadinessPayload {
+  let pkg: {
+    name?: string;
+    packageManager?: string;
+    scripts?: Record<string, string>;
+  } | null = null;
+
+  try {
+    const raw = readFileSync(resolve(projectRoot, 'package.json'), 'utf-8');
+    pkg = JSON.parse(raw) as {
+      name?: string;
+      packageManager?: string;
+      scripts?: Record<string, string>;
+    };
+  } catch {
+    pkg = null;
+  }
+
+  const packageManager = detectPackageManager(projectRoot, pkg ?? undefined);
+  const scripts = pkg?.scripts ?? {};
+  const projectName =
+    pkg?.name?.trim() || resolve(projectRoot).split(/[/\\]/).pop() || 'unknown';
+  const readinessScripts = {
+    test: scriptCommand(packageManager, 'test', scripts),
+    typecheck: scriptCommand(packageManager, 'typecheck', scripts),
+    lint: scriptCommand(packageManager, 'lint', scripts),
+    build: scriptCommand(packageManager, 'build', scripts),
+  };
+
+  const providers = {
+    openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+    anthropic: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+    gemini: Boolean(process.env.GEMINI_API_KEY?.trim()),
+  };
+
+  const rules = {
+    agents: existsSync(resolve(projectRoot, 'AGENTS.md')),
+    knowledge: existsSync(resolve(projectRoot, 'knowledge.md')),
+    config: existsSync(resolve(projectRoot, '.rdt', 'config.yaml')),
+  };
+
+  const scriptCount = Object.values(readinessScripts).filter(Boolean).length;
+  const ruleCount = Object.values(rules).filter(Boolean).length;
+  const providerCount = Object.values(providers).filter(Boolean).length;
+  const usableLocalRoute =
+    packageManager !== 'unknown' || scriptCount > 0 || ruleCount > 0;
+  const setupCount = scriptCount + ruleCount + providerCount;
+
+  let level: ReadinessLevel = 'needs_setup';
+  if (providerCount > 0 && scriptCount >= 2 && ruleCount >= 2) {
+    level = 'ready';
+  } else if (usableLocalRoute || setupCount > 0) {
+    level = 'partial';
+  }
+
+  return {
+    projectName,
+    packageManager,
+    scripts: readinessScripts,
+    providers,
+    rules,
+    level,
+  };
+}
+
 export function createDashboardCommand(): Command {
   return new Command('dashboard')
     .description('Start the local dashboard Web UI server')
@@ -443,6 +575,13 @@ export function createDashboardCommand(): Command {
           // API: Get Workspace Configuration
           if (url.pathname === '/api/config' && req.method === 'GET') {
             return new Response(JSON.stringify(configResult.config), {
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+          }
+
+          // API: Get backend readiness summary for the dashboard
+          if (url.pathname === '/api/readiness' && req.method === 'GET') {
+            return new Response(JSON.stringify(getReadiness(projectRoot)), {
               headers: { 'Content-Type': 'application/json', ...corsHeaders },
             });
           }

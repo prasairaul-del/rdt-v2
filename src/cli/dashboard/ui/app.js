@@ -8,6 +8,10 @@ let files = [];
 let selectedFilesOverride = new Set();
 let isServerRunningTask = false;
 let vibeMode = localStorage.getItem('vibeMode') === 'true';
+let learnMode = localStorage.getItem('learnMode');
+learnMode = learnMode === null ? true : learnMode === 'true';
+let readinessData = null;
+let readinessUnavailable = false;
 
 // Plain English Descriptions of state machine steps
 const stepGuides = {
@@ -72,6 +76,115 @@ const stepGuides = {
     desc: 'Task failed. Rollback could not complete or baseline was missing. Manual git check recommended.',
   },
 };
+
+const learnModeGuides = {
+  created: {
+    title: 'Task queued',
+    why: 'RDT has recorded your request and is preparing to work through it step by step.',
+    next: 'Watch for the next stage to see how RDT gathers context before editing.',
+  },
+  capturing_baseline: {
+    title: 'Saving a rollback point',
+    why: 'RDT snapshots the current workspace so changes can be compared or undone later.',
+    next: 'Look for the baseline capture to finish before edits begin.',
+  },
+  loading_context: {
+    title: 'Loading project context',
+    why: 'RDT is reading the repo rules and environment details it needs to work safely.',
+    next: 'The important thing here is the project instructions and config being loaded correctly.',
+  },
+  scanning_repo: {
+    title: 'Scanning the repo',
+    why: 'RDT is mapping the codebase so it can find the right files and understand the project shape.',
+    next: 'Check which files it looked at once the scan settles.',
+  },
+  selecting_files: {
+    title: 'Choosing files to inspect',
+    why: 'RDT is narrowing the workspace to the files most likely to matter for this task.',
+    next: 'Selected files show what the agent treated as the working set.',
+  },
+  planning: {
+    title: 'Making a plan',
+    why: 'RDT is turning the request and repo context into a concrete edit strategy.',
+    next: 'Read the plan summary to see the intended change before code is written.',
+  },
+  editing: {
+    title: 'Editing files',
+    why: 'RDT is applying the planned changes directly to the target files.',
+    next: 'Check the changed files list to see what was actually modified.',
+  },
+  reviewing: {
+    title: 'Checking the result',
+    why: 'RDT is running tests or checks so it can confirm the edit did not break the project.',
+    next: 'Look at the checks card for pass or fail labels and the exact commands used.',
+  },
+  fixing: {
+    title: 'Fixing problems',
+    why: 'RDT found something to correct and is making another pass with the feedback it has.',
+    next: 'This stage often follows a failing check, so the checks card matters most here.',
+  },
+  finalizing: {
+    title: 'Wrapping up',
+    why: 'RDT is saving the result and finishing the task record.',
+    next: 'The final summary and changed files are the best things to review now.',
+  },
+  done: {
+    title: 'Finished successfully',
+    why: 'The task completed and the checks available to RDT passed.',
+    next: 'Review the files changed and the checks that were used to verify the work.',
+  },
+  failed: {
+    title: 'Task failed',
+    why: 'RDT hit a blocking problem before it could finish normally.',
+    next: 'Check the error card and the checks card to see what happened last.',
+  },
+  rolling_back: {
+    title: 'Rolling changes back',
+    why: 'RDT is restoring the workspace to its previous state after a failed review.',
+    next: 'Wait for rollback to finish before making new edits.',
+  },
+  failed_clean: {
+    title: 'Failed, but cleaned up',
+    why: 'RDT failed, then successfully restored the workspace to its baseline state.',
+    next: 'The rollback outcome is the key thing to confirm here.',
+  },
+  failed_dirty: {
+    title: 'Failed with leftovers',
+    why: 'RDT failed and could not fully restore the workspace state.',
+    next: 'Review the changed files carefully and clean up manually if needed.',
+  },
+};
+
+const powerRecipes = [
+  {
+    id: 'diagnose-failure',
+    title: 'Diagnose a failure',
+    description: 'Trace the failing command, isolate the root cause, and keep the fix small.',
+    prompt:
+      'Diagnose the current failure. Identify the root cause, inspect the smallest relevant files, and apply the smallest safe fix with the exact verification command that proves it.',
+  },
+  {
+    id: 'feature-slice',
+    title: 'Ship a feature slice',
+    description: 'Break a request into a small deliverable and verify each behavior.',
+    prompt:
+      'Implement a narrow feature slice. Clarify the user-facing behavior, edit only the needed files, and verify the change with focused checks.',
+  },
+  {
+    id: 'hardening-pass',
+    title: 'Hardening pass',
+    description: 'Review a completed change for regressions, cleanup, and missing checks.',
+    prompt:
+      'Run a hardening pass on the latest work. Review the diff, look for edge cases, tighten commands or tests, and report any remaining risk clearly.',
+  },
+  {
+    id: 'ui-power-polish',
+    title: 'Power UI polish',
+    description: 'Refine the interface while protecting the current flow and data contract.',
+    prompt:
+      'Polish the UI for experienced use. Improve density, hierarchy, and workflow clarity without changing backend behavior or unrelated styling.',
+  },
+];
 
 // Load configuration
 async function loadConfig() {
@@ -260,36 +373,49 @@ function renderTaskDetails(task) {
         `;
     panel.appendChild(headerCard);
 
+    const expertFlowCard = document.createElement('div');
+    expertFlowCard.className = 'panel-card';
+    expertFlowCard.innerHTML = `
+      <div class="vibe-report-header">
+        <h3 style="font-size: 1.1rem; font-weight: 600;">Power recipes</h3>
+        <span class="preview-badge">Expert workflow</span>
+      </div>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.85rem;">Reusable prompts for deep work, debugging, and polish.</p>
+      ${renderPowerRecipes()}
+    `;
+    panel.appendChild(expertFlowCard);
+
     // Simple Vibe Report Card
     const reportCard = document.createElement('div');
     reportCard.className = 'vibe-report-card';
 
     // Get plain-English summary
-    const lastReview = task.reviewResults && task.reviewResults.length > 0
-      ? task.reviewResults[task.reviewResults.length - 1]
-      : null;
-    const summaryText = lastReview?.finalSummary || task.planSummary || 'I am working on planning and implementing your changes right now...';
+    const lastReview =
+      task.reviewResults && task.reviewResults.length > 0
+        ? task.reviewResults[task.reviewResults.length - 1]
+        : null;
+    const summaryText =
+      lastReview?.finalSummary ||
+      task.planSummary ||
+      'I am working on planning and implementing your changes right now...';
 
-    // Files modified
-    let filesHTML = '';
-    if (task.changedFiles && task.changedFiles.length > 0) {
-      filesHTML = `
-        <div style="margin-top: 1rem;">
-          <strong style="display: block; margin-bottom: 0.5rem; color: var(--text-color);">Files Modified:</strong>
-          <div class="file-tag-list">
-            ${task.changedFiles.map((f) => `<span class="file-tag">${escapeHtml(f)}</span>`).join('')}
-          </div>
-        </div>
-      `;
-    }
+    const learningCards = learnMode ? renderLearnModeCards(task) : '';
+    const filesHTML = learnMode
+      ? renderVibeFilesList(task)
+      : renderVibeChangedFiles(task);
 
     reportCard.innerHTML = `
       <div class="vibe-report-header">
         <h3 style="font-size: 1.2rem; font-weight: 600;">✨ Action Summary</h3>
+        <button class="vibe-toggle" onclick="toggleLearnMode()" type="button">
+          Learn Mode: ${learnMode ? 'On' : 'Off'}
+        </button>
       </div>
       <div class="vibe-report-summary">
         ${escapeHtml(summaryText)}
       </div>
+      ${learningCards}
+      ${renderPowerTaskOverview(task)}
       ${filesHTML}
       <div class="vibe-action-buttons">
         <button class="vibe-btn vibe-btn-primary" onclick="alert('Changes successfully saved and active in workspace!')">Keep Changes</button>
@@ -421,6 +547,8 @@ function renderTaskDetails(task) {
           <button class="tab-button active" onclick="switchTab('tab-plan')">Plan & Context</button>
           <button class="tab-button" onclick="switchTab('tab-diff')">Surgical Diff</button>
           <button class="tab-button" onclick="switchTab('tab-checks')">Checks & Test Logs</button>
+          <button class="tab-button" onclick="switchTab('tab-timeline')">Timeline</button>
+          <button class="tab-button" onclick="switchTab('tab-decisions')">Decisions</button>
           <button class="tab-button" onclick="switchTab('tab-providers')">Provider Health</button>
           <button class="tab-button" onclick="switchTab('tab-logs')">Live Logs</button>
         </div>
@@ -455,6 +583,16 @@ function renderTaskDetails(task) {
         <!-- Checks Tab -->
         <div class="tab-content" id="tab-checks">
           ${renderChecksTab(task)}
+        </div>
+
+        <!-- Timeline Tab -->
+        <div class="tab-content" id="tab-timeline">
+          ${renderCompactTimeline(task)}
+        </div>
+
+        <!-- Decisions Tab -->
+        <div class="tab-content" id="tab-decisions">
+          ${renderDecisionVisibility(task)}
         </div>
 
         <!-- Providers Tab -->
@@ -582,41 +720,23 @@ function toggleDiffBody(id) {
 
 // Render test logs tab
 function renderChecksTab(task) {
-  if (!task.testsRun || task.testsRun.length === 0) {
+  const checks = getTaskChecks(task);
+  if (checks.length === 0) {
     return `<div style="text-align: center; color: var(--text-muted); padding: 2rem;">No check runs or tests recorded for this task.</div>`;
   }
 
   let html = `<div class="checks-list">`;
-  task.testsRun.forEach((check) => {
-    let checkObj = {
-      command: 'Test runner',
-      passed: true,
-      outputSummary: 'Passed successfully',
-    };
-    if (typeof check === 'string') {
-      try {
-        checkObj = JSON.parse(check);
-      } catch {
-        checkObj = {
-          command: 'Test check',
-          passed: !check.toLowerCase().includes('fail'),
-          outputSummary: check,
-        };
-      }
-    } else {
-      checkObj = check;
-    }
-
-    const statusLabel = checkObj.passed ? 'PASSED' : 'FAILED';
-    const statusClass = checkObj.passed ? 'status-success' : 'status-failed';
+  checks.forEach((checkObj) => {
+    const statusLabel = checkObj.status === 'pass' ? 'PASSED' : 'FAILED';
+    const statusClass = checkObj.status === 'pass' ? 'status-success' : 'status-failed';
 
     html += `
           <div class="check-item">
             <div class="check-header">
-              <span class="check-command">${escapeHtml(checkObj.command)}</span>
+              <span class="check-command">${escapeHtml(checkObj.label)}</span>
               <span class="task-status ${statusClass}">${statusLabel}</span>
             </div>
-            <div class="check-output">${escapeHtml(checkObj.outputSummary || 'No output summary provided')}</div>
+            <div class="check-output">${escapeHtml(checkObj.detail || 'No output summary provided')}</div>
           </div>
         `;
   });
@@ -673,6 +793,7 @@ function toggleFileSelect(filePath) {
     selectedFilesOverride.add(filePath);
   }
   console.log('Selected context files:', selectedFilesOverride);
+  updateVibePlanPreview();
 }
 
 // Render welcome / workspace status panel
@@ -686,6 +807,7 @@ function renderWelcomePanel() {
   const projName = config?.project?.name || 'Workspace';
 
   if (vibeMode) {
+    const readinessPanel = renderReadinessPanel();
     welcomeDiv.innerHTML = `
       <div class="welcome-header">
         <span style="font-size: 2.5rem;">✨</span>
@@ -695,28 +817,47 @@ function renderWelcomePanel() {
         </div>
       </div>
 
-      <h3 style="font-size: 1.1rem; margin-top: 2rem; margin-bottom: 0.75rem; text-align: left;">Need an idea? Try these templates:</h3>
+      ${readinessPanel}
+
+      <div class="vibe-preview-card" style="margin-top: 1rem;">
+        <div class="vibe-preview-header">
+          <h3>Power recipes</h3>
+          <span class="preview-badge">Expert workflow</span>
+        </div>
+        <div class="vibe-report-summary" style="margin-bottom: 0.75rem;">Reusable prompts for diagnosis, feature work, and hardening passes.</div>
+        ${renderPowerRecipes()}
+      </div>
+
+      <h3 style="font-size: 1.1rem; margin-top: 1.5rem; margin-bottom: 0.75rem; text-align: left;">Need an idea? Try these templates:</h3>
       <div class="vibe-template-grid">
-        <div class="vibe-template-card" onclick="setVibePrompt('Add a beautiful dark mode toggle button to the main page')">
+        <div class="vibe-template-card" onclick="setVibePrompt('Fix a bug in the codebase. Start by identifying the issue, tracing the root cause, then apply the smallest safe fix and verify it with the relevant checks.')">
+          <span class="icon">🛠️</span>
+          <h4>Fix a bug</h4>
+          <p>Start with diagnosis, then apply the smallest safe fix.</p>
+        </div>
+        <div class="vibe-template-card" onclick="setVibePrompt('Add a feature to the app. Clarify the user flow, implement the new behavior, and verify the change with focused tests or checks.')">
+          <span class="icon">✨</span>
+          <h4>Add a feature</h4>
+          <p>Build the new behavior with the current project conventions.</p>
+        </div>
+        <div class="vibe-template-card" onclick="setVibePrompt('Improve the UI. Refine layout, spacing, and polish while keeping the existing behavior intact.')">
           <span class="icon">🎨</span>
-          <h4>Modern Dark Theme</h4>
-          <p>Style the workspace with elegant dark theme vibes.</p>
+          <h4>Improve the UI</h4>
+          <p>Polish the interface without changing the underlying workflow.</p>
         </div>
-        <div class="vibe-template-card" onclick="setVibePrompt('Add robust email format validation to all contact input forms')">
-          <span class="icon">✉️</span>
-          <h4>Email Validation</h4>
-          <p>Add check inputs for user-facing email forms.</p>
+        <div class="vibe-template-card" onclick="setVibePrompt('Run a production-ready check. Review readiness, verify the risky areas, and confirm the project is ready to ship.')">
+          <span class="icon">✅</span>
+          <h4>Production-ready check</h4>
+          <p>Review readiness and verify the shipping path.</p>
         </div>
-        <div class="vibe-template-card" onclick="setVibePrompt('Scan all files and automatically fix any failing unit tests or compilation issues')">
-          <span class="icon">🩺</span>
-          <h4>Auto Bug Repair</h4>
-          <p>Find and fix bugs in tests or compiler alerts.</p>
+      </div>
+
+      <div class="vibe-preview-card">
+        <div class="vibe-preview-header">
+          <h3>Deterministic plan preview</h3>
+          <span class="preview-badge">No LLM call</span>
         </div>
-        <div class="vibe-template-card" onclick="setVibePrompt('Write a clean contributor-guide.md in the docs directory for new developers')">
-          <span class="icon">📝</span>
-          <h4>Document Workspace</h4>
-          <p>Generate simple instructions and guide docs.</p>
-        </div>
+        <div id="vibePlanPreview"></div>
       </div>
 
       <div class="keys-config-card">
@@ -854,6 +995,9 @@ function renderWelcomePanel() {
       `;
 
   panel.appendChild(welcomeDiv);
+  if (vibeMode) {
+    updateVibePlanPreview();
+  }
 }
 
 // Escape HTML utilities
@@ -877,6 +1021,24 @@ async function loadProvidersHealth() {
     }
   } catch (err) {
     console.error('Failed to load provider health:', err);
+  }
+}
+
+async function loadReadiness() {
+  try {
+    const res = await fetch('/api/readiness');
+    if (!res.ok) {
+      readinessData = null;
+      readinessUnavailable = true;
+      return;
+    }
+
+    readinessData = await res.json();
+    readinessUnavailable = false;
+  } catch (err) {
+    console.error('Failed to load readiness:', err);
+    readinessData = null;
+    readinessUnavailable = true;
   }
 }
 
@@ -932,12 +1094,572 @@ function updateModeUI(isVibe) {
   if (text) text.innerText = isVibe ? 'Vibe Mode' : 'Dev Mode';
 }
 
+function toggleLearnMode() {
+  learnMode = !learnMode;
+  localStorage.setItem('learnMode', learnMode ? 'true' : 'false');
+  if (selectedTaskId) {
+    selectTask(selectedTaskId);
+  } else {
+    renderWelcomePanel();
+  }
+}
+
+function getLearnModeGuidance(status) {
+  return (
+    learnModeGuides[status] || {
+      title: 'Task in progress',
+      why: 'RDT is still moving through the workflow for this request.',
+      next: 'Watch the next status update to see what happened next.',
+    }
+  );
+}
+
+function renderVibeFilesList(task) {
+  const selectedFiles = task.selectedFiles || [];
+  const changedFiles = task.changedFiles || [];
+  const selectedSection =
+    selectedFiles.length > 0
+      ? `<div class="learn-list">${selectedFiles.map((file) => `<span class="file-tag">${escapeHtml(file)}</span>`).join('')}</div>`
+      : '<p class="learn-empty">No selected files were recorded for this task.</p>';
+  const changedSection =
+    changedFiles.length > 0
+      ? `<div class="learn-list">${changedFiles.map((file) => `<span class="file-tag file-tag-changed">${escapeHtml(file)}</span>`).join('')}</div>`
+      : '<p class="learn-empty">No changed files were recorded yet, or the task finished without edits.</p>';
+
+  return `
+    <div class="learn-card">
+      <div class="learn-card-header">
+        <h4>Files RDT looked at / changed</h4>
+        <p>These lists show the working set and the files that were actually edited.</p>
+      </div>
+      <div class="learn-group">
+        <div class="learn-label">Files RDT looked at</div>
+        ${selectedSection}
+      </div>
+      <div class="learn-group">
+        <div class="learn-label">Files RDT changed</div>
+        ${changedSection}
+      </div>
+    </div>
+  `;
+}
+
+function renderVibeChangedFiles(task) {
+  const changedFiles = task.changedFiles || [];
+  if (changedFiles.length === 0) return '';
+
+  return `
+    <div style="margin-top: 1rem;">
+      <strong style="display: block; margin-bottom: 0.5rem; color: var(--text-color);">Files Modified:</strong>
+      <div class="file-tag-list">
+        ${changedFiles.map((file) => `<span class="file-tag">${escapeHtml(file)}</span>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderChecksSummary(task) {
+  const checks = Array.isArray(task.checks) ? task.checks : [];
+  const testsRun = Array.isArray(task.testsRun) ? task.testsRun : [];
+  const entries = [];
+
+  testsRun.forEach((item) => {
+    if (typeof item === 'string') {
+      entries.push({
+        label: item,
+        status: item.toLowerCase().includes('fail') ? 'fail' : 'pass',
+      });
+      return;
+    }
+    if (item && typeof item === 'object') {
+      entries.push({
+        label: item.command || item.name || 'Check',
+        status:
+          item.passed === false || item.status === 'failed' ? 'fail' : 'pass',
+        detail: item.outputSummary || item.output || item.message || '',
+      });
+    }
+  });
+
+  checks.forEach((item) => {
+    if (typeof item === 'string') {
+      entries.push({
+        label: item,
+        status: item.toLowerCase().includes('fail') ? 'fail' : 'pass',
+      });
+      return;
+    }
+    if (item && typeof item === 'object') {
+      entries.push({
+        label: item.command || item.name || 'Check',
+        status:
+          item.passed === false || item.status === 'failed' ? 'fail' : 'pass',
+        detail: item.outputSummary || item.output || item.message || '',
+      });
+    }
+  });
+
+  if (entries.length === 0) {
+    return '<p class="learn-empty">No checks were recorded, so RDT does not have verification data to explain here.</p>';
+  }
+
+  return `
+    <div class="learn-list learn-check-list">
+      ${entries
+        .map(
+          (entry) => `
+            <div class="learn-check-item">
+              <span class="learn-check-status ${entry.status === 'fail' ? 'is-fail' : 'is-pass'}">${entry.status === 'fail' ? 'Fail' : 'Pass'}</span>
+              <div>
+                <div class="learn-check-label">${escapeHtml(entry.label)}</div>
+                ${entry.detail ? `<div class="learn-check-detail">${escapeHtml(entry.detail)}</div>` : ''}
+              </div>
+            </div>
+          `,
+        )
+        .join('')}
+    </div>
+  `;
+}
+
+function renderErrorHelp(task) {
+  if (!task.errorMessage) return '';
+  return `
+    <div class="learn-card learn-card-error">
+      <div class="learn-card-header">
+        <h4>Error help</h4>
+        <p>RDT failed and the message below is the symptom it recorded.</p>
+      </div>
+      <div class="learn-error-message">${escapeHtml(task.errorMessage)}</div>
+      <p class="learn-error-next">Next action: review the failing check or rollback note, then rerun the task with the smallest useful change.</p>
+    </div>
+  `;
+}
+
+function renderLearnModeCards(task) {
+  const guide = getLearnModeGuidance(task.status);
+  const checksCard = `
+    <div class="learn-card">
+      <div class="learn-card-header">
+        <h4>How RDT checked this</h4>
+        <p>Pass and fail labels show what verification data the task recorded.</p>
+      </div>
+      ${renderChecksSummary(task)}
+    </div>
+  `;
+
+  return `
+    <div class="learn-card-grid">
+      <div class="learn-card">
+        <div class="learn-card-header">
+          <h4>What is happening now</h4>
+          <p>${escapeHtml(guide.title)}</p>
+        </div>
+        <div class="learn-note">${escapeHtml(guide.why)}</div>
+        <div class="learn-note learn-note-next">${escapeHtml(guide.next)}</div>
+      </div>
+      ${checksCard}
+      ${renderErrorHelp(task)}
+    </div>
+  `;
+}
+
+function getTaskChecks(task) {
+  const source = [];
+  if (Array.isArray(task.testsRun)) source.push(...task.testsRun);
+  if (Array.isArray(task.checks)) source.push(...task.checks);
+  if (Array.isArray(task.reviewResults)) {
+    task.reviewResults.forEach((review) => {
+      if (review?.testsRun) source.push(...review.testsRun);
+    });
+  }
+
+  return source
+    .map((item) => normalizeCheckEntry(item))
+    .filter(Boolean);
+}
+
+function normalizeCheckEntry(item) {
+  if (!item) return null;
+  if (typeof item === 'string') {
+    return {
+      label: item,
+      status: item.toLowerCase().includes('fail') ? 'fail' : 'pass',
+      detail: '',
+    };
+  }
+  if (typeof item === 'object') {
+    const command =
+      item.command || item.name || item.label || item.title || 'Check';
+    const statusText = String(item.status || '').toLowerCase();
+    const passed =
+      item.passed === undefined
+        ? !statusText.includes('fail')
+        : Boolean(item.passed);
+    return {
+      label: command,
+      status: passed ? 'pass' : 'fail',
+      detail: item.outputSummary || item.output || item.message || '',
+    };
+  }
+  return null;
+}
+
+function summarizeTimeline(task) {
+  const reviewCount = Array.isArray(task.reviewResults)
+    ? task.reviewResults.length
+    : 0;
+  const hasDiff = Boolean(task.diff && task.diff.trim());
+  const stages = [
+    {
+      label: 'Created',
+      detail: task.startedAt
+        ? new Date(task.startedAt).toLocaleString()
+        : 'Queued by dashboard',
+    },
+    {
+      label: 'Plan',
+      detail: task.planSummary ? 'Plan captured' : 'Plan not recorded',
+    },
+    {
+      label: 'Review',
+      detail:
+        reviewCount > 0
+          ? `${reviewCount} review pass${reviewCount === 1 ? '' : 'es'}`
+          : 'No review payload recorded',
+    },
+    {
+      label: 'Diff',
+      detail: hasDiff ? 'Diff captured' : 'No diff saved',
+    },
+    {
+      label: 'Done',
+      detail: task.finishedAt
+        ? new Date(task.finishedAt).toLocaleString()
+        : task.status === 'running'
+          ? 'Still running'
+          : 'Not finished',
+    },
+  ];
+
+  return stages;
+}
+
+function renderCompactTimeline(task) {
+  const stages = summarizeTimeline(task);
+  return `
+    <div class="power-timeline-panel">
+      <div class="learn-card-header">
+        <h4>Task timeline</h4>
+        <p>Compact status trail from creation to the latest recorded outcome.</p>
+      </div>
+      <div class="power-timeline-track">
+        ${stages
+          .map(
+            (stage, index) => `
+              <div class="power-timeline-item">
+                <span class="power-timeline-marker ${index === stages.length - 1 ? 'is-current' : 'is-done'}"></span>
+                <div class="power-timeline-content">
+                  <div class="power-timeline-label">Step ${index + 1}</div>
+                  <div class="power-timeline-title">${escapeHtml(stage.label)}</div>
+                  <div class="power-timeline-note">${escapeHtml(stage.detail)}</div>
+                </div>
+              </div>
+            `,
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderDecisionVisibility(task) {
+  const planSteps = Array.isArray(task.plan?.steps) ? task.plan.steps : [];
+  const risks = Array.isArray(task.plan?.risks) ? task.plan.risks : [];
+  const review = Array.isArray(task.reviewResults) && task.reviewResults.length > 0
+    ? task.reviewResults[task.reviewResults.length - 1]
+    : null;
+  const requiredFixes = Array.isArray(review?.requiredFixes) ? review.requiredFixes : [];
+  const issues = Array.isArray(review?.issues) ? review.issues : [];
+
+  const stepItems = planSteps.length
+    ? planSteps
+        .map(
+          (step) => `
+            <div class="learn-check-item">
+              <span class="learn-check-status is-pass">${escapeHtml(step.risk || 'low')}</span>
+              <div>
+                <div class="learn-check-label">${escapeHtml(step.description || step.id || 'Step')}</div>
+                <div class="learn-check-detail">${escapeHtml((step.targetFiles || []).join(', ') || 'No target files recorded')}</div>
+              </div>
+            </div>
+          `,
+        )
+        .join('')
+    : '<p class="learn-empty">No structured plan steps were recorded.</p>';
+
+  const riskItems = risks.length
+    ? risks.map((risk) => `<span class="file-tag">${escapeHtml(risk)}</span>`).join('')
+    : '<span class="preview-empty">No explicit risks recorded.</span>';
+
+  const issueItems = issues.length
+    ? issues.map((issue) => `<span class="file-tag file-tag-changed">${escapeHtml(issue)}</span>`).join('')
+    : '<span class="preview-empty">No review issues recorded.</span>';
+
+  const fixItems = requiredFixes.length
+    ? requiredFixes.map((fix) => `<span class="file-tag">${escapeHtml(fix)}</span>`).join('')
+    : '<span class="preview-empty">No required fixes recorded.</span>';
+
+  return `
+    <div class="learn-card-grid">
+      <div class="learn-card">
+        <div class="learn-card-header">
+          <h4>Plan decisions</h4>
+          <p>Structured steps and risks from the plan stage.</p>
+        </div>
+        <div class="learn-list">${stepItems}</div>
+        <div class="learn-group">
+          <div class="learn-label">Risks</div>
+          <div class="preview-tags">${riskItems}</div>
+        </div>
+      </div>
+      <div class="learn-card">
+        <div class="learn-card-header">
+          <h4>Review decisions</h4>
+          <p>What the reviewer objected to and what it asked to fix.</p>
+        </div>
+        <div class="learn-group">
+          <div class="learn-label">Issues</div>
+          <div class="preview-tags">${issueItems}</div>
+        </div>
+        <div class="learn-group">
+          <div class="learn-label">Required fixes</div>
+          <div class="preview-tags">${fixItems}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPowerCheckTransparency(task) {
+  const plannedChecks = getReadinessScriptList();
+  const executedChecks = getTaskChecks(task);
+  const plannedHtml = plannedChecks.length
+    ? plannedChecks
+        .map(
+          (check) =>
+            `<span class="preview-check">${escapeHtml(check)}</span>`,
+        )
+        .join('')
+    : '<span class="preview-empty">No default checks inferred.</span>';
+  const executedHtml = executedChecks.length
+    ? executedChecks
+        .map(
+          (check) => `
+            <div class="learn-check-item">
+              <span class="learn-check-status ${check.status === 'fail' ? 'is-fail' : 'is-pass'}">${check.status === 'fail' ? 'Fail' : 'Pass'}</span>
+              <div>
+                <div class="learn-check-label">${escapeHtml(check.label)}</div>
+                ${check.detail ? `<div class="learn-check-detail">${escapeHtml(check.detail)}</div>` : ''}
+              </div>
+            </div>
+          `,
+        )
+        .join('')
+    : '<p class="learn-empty">No executed checks were captured for this task.</p>';
+
+  return `
+    <div class="power-transparency-panel">
+      <div class="power-transparency-header">
+        <div class="power-transparency-title">Command and check transparency</div>
+        <span class="preview-badge">Planned vs executed</span>
+      </div>
+      <div class="power-transparency-grid">
+        <div class="power-transparency-item">
+          <div class="power-transparency-label">Planned checks</div>
+          <div class="preview-tags">${plannedHtml}</div>
+        </div>
+        <div class="power-transparency-item">
+          <div class="power-transparency-label">Executed checks</div>
+          <div class="learn-check-list">${executedHtml}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPowerTaskOverview(task) {
+  return `
+    <div class="power-workflow-grid" style="margin-top: 1rem;">
+      ${renderPowerCheckTransparency(task)}
+      ${renderCompactTimeline(task)}
+      ${renderDecisionVisibility(task)}
+    </div>
+  `;
+}
+
+function renderPowerRecipes() {
+  return `
+    <div class="vibe-template-grid">
+      ${powerRecipes
+        .map(
+          (recipe) => `
+            <div class="vibe-template-card" onclick="setPowerRecipePrompt('${escapeHtml(recipe.id)}')">
+              <span class="icon">⚡</span>
+              <h4>${escapeHtml(recipe.title)}</h4>
+              <p>${escapeHtml(recipe.description)}</p>
+            </div>
+          `,
+        )
+        .join('')}
+    </div>
+  `;
+}
+
+function setPowerRecipePrompt(recipeId) {
+  const recipe = powerRecipes.find((item) => item.id === recipeId);
+  if (!recipe) return;
+  setVibePrompt(recipe.prompt);
+}
+
 function setVibePrompt(promptText) {
   const input = document.getElementById('promptInput');
   if (input) {
     input.value = promptText;
     input.focus();
   }
+  updateVibePlanPreview();
+}
+
+function buildFinalPrompt(prompt) {
+  const cleanPrompt = prompt.trim();
+  if (!cleanPrompt) return '';
+  if (selectedFilesOverride.size === 0) return cleanPrompt;
+
+  const filesContext = Array.from(selectedFilesOverride).join(', ');
+  return `${cleanPrompt}\n(Focus files: ${filesContext})`;
+}
+
+function getReadinessScriptList() {
+  if (!readinessData?.scripts) return [];
+
+  return ['test', 'typecheck', 'lint', 'build']
+    .map((key) => readinessData.scripts[key])
+    .filter(Boolean);
+}
+
+function renderReadinessPanel() {
+  if (readinessUnavailable) {
+    return `
+      <div class="readiness-card">
+        <div class="readiness-header">
+          <h3>Project readiness</h3>
+          <span class="readiness-status status-unavailable">Unavailable</span>
+        </div>
+        <p class="readiness-unavailable">Readiness unavailable</p>
+      </div>
+    `;
+  }
+
+  const scripts = readinessData?.scripts || {};
+  const providers = readinessData?.providers || {};
+  const rules = readinessData?.rules || {};
+  const checklist = [
+    { label: 'Test script', value: scripts.test },
+    { label: 'Typecheck', value: scripts.typecheck },
+    { label: 'Lint', value: scripts.lint },
+    { label: 'Build', value: scripts.build },
+    { label: 'OpenRouter key', value: providers.openrouter },
+    { label: 'Anthropic key', value: providers.anthropic },
+    { label: 'Gemini key', value: providers.gemini },
+    { label: 'AGENTS.md', value: rules.agents },
+    { label: 'knowledge.md', value: rules.knowledge },
+    { label: 'RDT config', value: rules.config },
+  ];
+
+  return `
+    <div class="readiness-card">
+      <div class="readiness-header">
+        <h3>Project readiness</h3>
+        <span class="readiness-status readiness-${escapeHtml(readinessData?.level || 'needs_setup')}">${escapeHtml(readinessData?.level || 'needs_setup')}</span>
+      </div>
+      <div class="readiness-list">
+        ${checklist
+          .map((item) => {
+            const isScript = typeof item.value === 'string';
+            const passed = Boolean(item.value);
+            return `
+              <div class="readiness-item">
+                <span>${escapeHtml(item.label)}</span>
+                <span class="readiness-pill ${passed ? 'is-ready' : 'is-missing'}">${passed ? (isScript ? 'Set' : 'Yes') : 'Missing'}</span>
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    </div>
+  `;
+}
+
+function updateVibePlanPreview() {
+  const preview = document.getElementById('vibePlanPreview');
+  if (!preview) return;
+
+  const input = document.getElementById('promptInput');
+  const prompt = input?.value || '';
+  const finalPrompt = buildFinalPrompt(prompt);
+  const focusFiles = Array.from(selectedFilesOverride);
+  const safetySteps = [
+    'Capture the existing state before editing.',
+    'Keep the diff minimal and aligned to current conventions.',
+    'Avoid touching unrelated files.',
+  ];
+  const expectedChecks = getReadinessScriptList();
+
+  preview.innerHTML = `
+    <div class="preview-section">
+      <div class="preview-label">Final prompt</div>
+      <div class="preview-body">${finalPrompt ? escapeHtml(finalPrompt) : '<span class="preview-empty">Type a prompt or choose a template.</span>'}</div>
+    </div>
+    <div class="preview-grid">
+      <div class="preview-section">
+        <div class="preview-label">Selected focus files</div>
+        <div class="preview-tags">
+          ${
+            focusFiles.length > 0
+              ? focusFiles
+                  .map(
+                    (file) =>
+                      `<span class="file-tag">${escapeHtml(file)}</span>`,
+                  )
+                  .join('')
+              : '<span class="preview-empty">None selected</span>'
+          }
+        </div>
+      </div>
+      <div class="preview-section">
+        <div class="preview-label">Safety steps</div>
+        <ul class="preview-list">
+          ${safetySteps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}
+        </ul>
+      </div>
+    </div>
+    <div class="preview-section">
+      <div class="preview-label">Expected checks</div>
+      <div class="preview-tags">
+        ${
+          expectedChecks.length > 0
+            ? expectedChecks
+                .map(
+                  (check) =>
+                    `<span class="preview-check">${escapeHtml(check)}</span>`,
+                )
+                .join('')
+            : '<span class="preview-empty">No readiness scripts found.</span>'
+        }
+      </div>
+    </div>
+  `;
 }
 
 async function saveApiKeys() {
@@ -968,7 +1690,12 @@ async function saveApiKeys() {
 }
 
 async function revertVibeTask(taskId) {
-  if (!confirm('Are you sure you want to discard these changes and restore the previous code?')) return;
+  if (
+    !confirm(
+      'Are you sure you want to discard these changes and restore the previous code?',
+    )
+  )
+    return;
   const prompt = `undo task ${taskId}`;
   try {
     const res = await fetch('/api/tasks', {
@@ -1135,8 +1862,14 @@ async function init() {
   await loadFiles();
   await loadTasks();
   await loadProvidersHealth();
+  await loadReadiness();
   await checkServerStatus();
   connectEvents();
+
+  const promptInput = document.getElementById('promptInput');
+  if (promptInput) {
+    promptInput.addEventListener('input', updateVibePlanPreview);
+  }
 
   // Show welcome panel if no task exists, otherwise select the latest task
   if (tasks.length > 0) {
@@ -1157,6 +1890,8 @@ window.cancelCurrentTask = cancelCurrentTask;
 window.selectTask = selectTask;
 window.toggleDiffBody = toggleDiffBody;
 window.setVibePrompt = setVibePrompt;
+window.setPowerRecipePrompt = setPowerRecipePrompt;
+window.toggleLearnMode = toggleLearnMode;
 window.saveApiKeys = saveApiKeys;
 window.revertVibeTask = revertVibeTask;
 
