@@ -11,6 +11,16 @@ const __dirname = dirname(__filename);
 
 type ReadinessLevel = 'ready' | 'partial' | 'needs_setup';
 
+/**
+ * Lightweight logger interface for the dashboard server.
+ * Allows suppressing startup banners and errors during tests.
+ */
+export interface DashboardLogger {
+  log(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+}
+
 type ReadinessPayload = {
   projectName: string;
   packageManager: string;
@@ -141,7 +151,7 @@ function getReadiness(projectRoot: string): ReadinessPayload {
   };
 }
 
-export function createDashboardCommand(): Command {
+export function createDashboardCommand(logger: DashboardLogger = console): Command {
   return new Command('dashboard')
     .description('Start the local dashboard Web UI server')
     .option(
@@ -158,11 +168,11 @@ export function createDashboardCommand(): Command {
       const logStore = new TaskLogStore(dbPath);
       const configResult = loadConfig(projectRoot);
 
-      console.log(
+      logger.log(
         `\n\x1b[32m[rdt-dashboard] Starting server on http://localhost:${port}\x1b[0m`,
       );
-      console.log(`[rdt-dashboard] Reading logs database from: ${dbPath}`);
-      console.log(
+      logger.log(`[rdt-dashboard] Reading logs database from: ${dbPath}`);
+      logger.log(
         `[rdt-dashboard] Monitoring events on workspace: ${projectRoot}\n`,
       );
 
@@ -170,11 +180,11 @@ export function createDashboardCommand(): Command {
         try {
           const { exec } = await import('node:child_process');
           exec(`code --command simpleBrowser.show http://localhost:${port}`);
-          console.log(
+          logger.log(
             `[rdt-dashboard] Triggered VS Code command: simpleBrowser.show http://localhost:${port}\n`,
           );
         } catch (err) {
-          console.warn(
+          logger.warn(
             '[rdt-dashboard] Failed to launch VS Code command:',
             err,
           );
@@ -243,7 +253,7 @@ export function createDashboardCommand(): Command {
               });
               await runner.run(nextTask.request);
             } catch (err) {
-              console.error(
+              logger.error(
                 '[rdt-dashboard] Background task execution failed:',
                 err,
               );

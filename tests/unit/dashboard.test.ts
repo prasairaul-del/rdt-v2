@@ -153,7 +153,8 @@ describe('Dashboard Server API', () => {
       },
     };
 
-    const command = createDashboardCommand();
+    const silentLogger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const command = createDashboardCommand(silentLogger);
     // Parse arguments to trigger action callback
     await command.parseAsync(['node', 'rdt', 'dashboard', '--port', '3000']);
   });
