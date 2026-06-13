@@ -14,6 +14,7 @@ import type { TaskResult } from '../../src/core/runner/types';
 import { TaskRunner } from '../../src/core/task-runner';
 import type { TaskState } from '../../src/core/task-state';
 import { VectorSearch } from '../../src/project-context/vector-search';
+import { createSilentTestLogger } from './utils/test-logger';
 
 // Mock bun:sqlite
 interface MockDbRow {
@@ -119,6 +120,7 @@ describe('Phase 4: Telemetry Profiling', () => {
     const runner = new TaskRunner({
       projectRoot: process.cwd(),
       rdtConfig: minimalRdtConfig,
+      logger: createSilentTestLogger(),
     });
     const runnerInternals = runner as unknown as TaskRunnerInternals;
 
@@ -154,6 +156,7 @@ describe('Phase 4: Telemetry Profiling', () => {
     const runner = new TaskRunner({
       projectRoot: process.cwd(),
       rdtConfig: minimalRdtConfig,
+      logger: createSilentTestLogger(),
     });
     const runnerInternals = runner as unknown as TaskRunnerInternals;
 

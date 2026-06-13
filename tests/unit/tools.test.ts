@@ -15,6 +15,7 @@ import { readFileTool } from '../../src/tools/read-file';
 import { runShellTool } from '../../src/tools/run-shell';
 import { searchFilesTool } from '../../src/tools/search-files';
 import { writeFileTool } from '../../src/tools/write-file';
+import { createSilentTestLogger } from './utils/test-logger';
 
 const TEST_TMP = resolve(process.cwd(), 'tmp-test');
 
@@ -299,6 +300,7 @@ describe('runShellTool', () => {
     // Use node to avoid shell differences
     const result = await runShellTool.execute({
       command: 'node -e "console.log(\'hello\')"',
+      logger: createSilentTestLogger(),
     });
     expect(result.success).toBe(true);
     expect(result.data?.stdout).toContain('hello');
@@ -308,7 +310,10 @@ describe('runShellTool', () => {
   it('should block dangerous commands', async () => {
     const blocked = ['rm -rf /', 'shutdown', 'mkfs.ext4'];
     for (const cmd of blocked) {
-      const result = await runShellTool.execute({ command: cmd });
+      const result = await runShellTool.execute({
+        command: cmd,
+        logger: createSilentTestLogger(),
+      });
       expect(result.success).toBe(false);
       expect(result.error?.type).toBe('PERMISSION_DENIED');
     }
@@ -317,6 +322,7 @@ describe('runShellTool', () => {
   it('should return exit code for failing commands', async () => {
     const result = await runShellTool.execute({
       command: 'node -e "process.exit(1)"',
+      logger: createSilentTestLogger(),
     });
     expect(result.success).toBe(true);
     expect(result.data?.exitCode).toBe(1);

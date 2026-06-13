@@ -52,6 +52,11 @@ bun run format       # Format with Biome
 bun run build        # Build and bundle the CLI application
 ```
 
+Biome linting intentionally ignores generated output and nested fixture repos
+(`dist/`, `node_modules/`, `.agent-backups/`, and `tests/fixtures/`) so
+`bun run lint` reports first-party source, tests, and documentation debt rather
+than build artifacts or embedded sample projects.
+
 For a comprehensive guide to codebase design, agent protocols, and task execution pipelines, see the [Contributor Guide](file:///C:/Long-run%20Project/RDT-v2/docs/contributor-guide.md).
 
 ---
@@ -79,6 +84,7 @@ User Request → File Picker → Planner → Editor → Reviewer → Final Repor
 - **Task Console and Queue Control** — Allows triggering coding tasks directly from the dashboard UI, backed by background execution queues.
 - **Context File Selector** — Includes an interactive workspace file checklist to let users manually include/exclude file contexts before launching a task.
 - **User-Space Shadow Sandbox** — A lightweight, zero-install workspace sandboxing mechanism that uses NTFS junctions/symlinks to expose dependencies (like `node_modules` and `.venv`) in 0 extra bytes of storage. All edits and test runs are isolated in the sandbox, copying back only successfully approved files to the host.
+- **Quiet Test Logging Support** — `TaskLogger` supports an opt-in silent mode used by tests, preserving log entries and event behavior while suppressing noisy runner/tool console output.
 - **VS Code Integration** — Launches the dashboard natively inside a VS Code Simple Browser pane using the `--open-vscode` flag.
 - **Git Auto-Commits** — Configurable `git_auto_commit` setting that automatically stages and commits successful task edits to git.
 - **Local Hybrid Context Scaling** — Uses SQLite database caches for file content hashes and terms, providing dense embeddings search (OpenAI/Ollama) with a zero-cost local TF-IDF vector similarity fallback.
@@ -126,6 +132,7 @@ src/
 
 tests/
   unit/             9 unit test files
+  unit/utils/       test-only helpers such as createSilentTestLogger()
   integration/      2 integration test files
   fixtures/         3 fixture repos (ts-basic, failing-test, python-basic)
 ```

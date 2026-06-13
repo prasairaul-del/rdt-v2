@@ -14,17 +14,27 @@ export interface LogEntry {
   data?: Record<string, unknown>;
 }
 
+export interface TaskLoggerOptions {
+  silent?: boolean;
+}
+
 export class TaskLogger {
   private taskId?: string;
   private logFile?: string;
   private entries: LogEntry[] = [];
   private minLevel: LogLevel = 'info';
+  private silent: boolean;
 
   private readonly LEVEL_ORDER: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 
-  constructor(taskId?: string, logFile?: string) {
+  constructor(
+    taskId?: string,
+    logFile?: string,
+    options: TaskLoggerOptions = {},
+  ) {
     this.taskId = taskId;
     this.logFile = logFile;
+    this.silent = options.silent ?? false;
   }
 
   setTaskId(taskId: string): void {
@@ -86,6 +96,8 @@ export class TaskLogger {
   }
 
   private writeToConsole(entry: LogEntry): void {
+    if (this.silent) return;
+
     const prefix = getLevelPrefix(entry.level);
     const taskTag = entry.taskId ? ` [${entry.taskId}]` : '';
     const dataStr = entry.data ? ` ${JSON.stringify(entry.data)}` : '';

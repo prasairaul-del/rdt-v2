@@ -9,13 +9,13 @@ import {
   it,
   vi,
 } from 'vitest';
-import { TaskLogger } from '../../src/core/logger';
 import { loadInstructions } from '../../src/project-context/load-instructions';
 import { deleteFileTool } from '../../src/tools/delete-file';
 import { makeDirectoryTool } from '../../src/tools/make-directory';
 import { moveFileTool } from '../../src/tools/move-file';
 import { runShellTool } from '../../src/tools/run-shell';
 import { testRunnerTool } from '../../src/tools/test-runner';
+import { createSilentTestLogger } from './utils/test-logger';
 
 const TEST_DIR = resolve(process.cwd(), 'tmp-phase3');
 
@@ -237,7 +237,7 @@ describe('Phase 3 - Filesystem Tools', () => {
 
 describe('Phase 3 - Spawn Refactoring and Real-time Streaming', () => {
   it('should stream runShellTool output line-by-line via TaskLogger', async () => {
-    const logger = new TaskLogger();
+    const logger = createSilentTestLogger();
     const infoSpy = vi.spyOn(logger, 'info');
 
     const result = await runShellTool.execute({
@@ -255,7 +255,7 @@ describe('Phase 3 - Spawn Refactoring and Real-time Streaming', () => {
   });
 
   it('should stream testRunnerTool output line-by-line via TaskLogger', async () => {
-    const logger = new TaskLogger();
+    const logger = createSilentTestLogger();
     const infoSpy = vi.spyOn(logger, 'info');
 
     const result = await testRunnerTool.execute({

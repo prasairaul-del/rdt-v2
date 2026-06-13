@@ -9,6 +9,7 @@ import {
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TaskRunner } from '../../src/core/task-runner';
+import { createSilentTestLogger } from '../unit/utils/test-logger';
 
 // ── Module Mocks ───────────────────────────────────────────────────
 
@@ -84,6 +85,13 @@ function safeRmDir(dir: string, retries = 3): void {
   }
 }
 
+function createTestRunner(projectRoot: string): TaskRunner {
+  return new TaskRunner({
+    projectRoot,
+    logger: createSilentTestLogger(),
+  });
+}
+
 beforeAll(() => {
   // Copy failing-test fixture to temp dir
   safeRmDir(TEMP_DIR);
@@ -105,9 +113,7 @@ afterAll(() => {
 
 describe('rdt run — failing-test fixture integration', () => {
   it('should complete a task pipeline on the failing-test fixture', async () => {
-    const runner = new TaskRunner({
-      projectRoot: TEMP_DIR,
-    });
+    const runner = createTestRunner(TEMP_DIR);
 
     const result = await runner.run('fix the failing multiply test');
 
@@ -119,9 +125,7 @@ describe('rdt run — failing-test fixture integration', () => {
   });
 
   it('should return a well-structured TaskResult', async () => {
-    const runner = new TaskRunner({
-      projectRoot: TEMP_DIR,
-    });
+    const runner = createTestRunner(TEMP_DIR);
 
     const result = await runner.run('fix multiply function bug');
 
@@ -142,9 +146,7 @@ describe('rdt run — failing-test fixture integration', () => {
   });
 
   it('should traverse through valid state machine transitions', async () => {
-    const runner = new TaskRunner({
-      projectRoot: TEMP_DIR,
-    });
+    const runner = createTestRunner(TEMP_DIR);
 
     const result = await runner.run('optimize the multiply function');
 
@@ -159,10 +161,10 @@ describe('rdt run — failing-test fixture integration', () => {
   });
 
   it('should be re-runnable (no side effects from previous run)', async () => {
-    const runner1 = new TaskRunner({ projectRoot: TEMP_DIR });
+    const runner1 = createTestRunner(TEMP_DIR);
     const result1 = await runner1.run('first run');
 
-    const runner2 = new TaskRunner({ projectRoot: TEMP_DIR });
+    const runner2 = createTestRunner(TEMP_DIR);
     const result2 = await runner2.run('second run');
 
     // Both should complete successfully
@@ -207,7 +209,7 @@ describe('rdt run — failing-test fixture integration', () => {
   });
 
   it('should have correct directory structure for a run', async () => {
-    const runner = new TaskRunner({ projectRoot: TEMP_DIR });
+    const runner = createTestRunner(TEMP_DIR);
     const result = await runner.run('fix the math bug');
 
     // Check that source and test files exist and are readable
@@ -226,7 +228,7 @@ describe('rdt run — failing-test fixture integration', () => {
   });
 
   it('should record provider usage in the result', async () => {
-    const runner = new TaskRunner({ projectRoot: TEMP_DIR });
+    const runner = createTestRunner(TEMP_DIR);
     const result = await runner.run('fix multiplication');
 
     // Provider summary should be present (agents record heuristic usage)
@@ -255,7 +257,7 @@ describe('rdt run — ts-basic fixture integration', () => {
   });
 
   it('should complete a task on a working (passing tests) project', async () => {
-    const runner = new TaskRunner({ projectRoot: BASIC_TEMP_DIR });
+    const runner = createTestRunner(BASIC_TEMP_DIR);
     const result = await runner.run('add a new utility function');
 
     expect(result.taskId).toBeTruthy();
@@ -263,7 +265,7 @@ describe('rdt run — ts-basic fixture integration', () => {
   });
 
   it('should select files from the ts-basic project', async () => {
-    const runner = new TaskRunner({ projectRoot: BASIC_TEMP_DIR });
+    const runner = createTestRunner(BASIC_TEMP_DIR);
     const result = await runner.run('update the greet function');
 
     expect(result.taskId).toBeTruthy();
@@ -273,7 +275,7 @@ describe('rdt run — ts-basic fixture integration', () => {
   });
 
   it('should handle empty task request gracefully', async () => {
-    const runner = new TaskRunner({ projectRoot: BASIC_TEMP_DIR });
+    const runner = createTestRunner(BASIC_TEMP_DIR);
     const result = await runner.run('');
 
     expect(result).toHaveProperty('taskId');
@@ -317,7 +319,7 @@ describe('rdt run — python-basic fixture integration', () => {
   });
 
   it('should complete a task on the python-basic fixture', async () => {
-    const runner = new TaskRunner({ projectRoot: PYTHON_TEMP_DIR });
+    const runner = createTestRunner(PYTHON_TEMP_DIR);
     const result = await runner.run('add a new Python utility function');
 
     expect(result.taskId).toBeTruthy();
@@ -367,7 +369,7 @@ describe('rdt run — python-basic fixture integration', () => {
   });
 
   it('should select source files from the Python project', async () => {
-    const runner = new TaskRunner({ projectRoot: PYTHON_TEMP_DIR });
+    const runner = createTestRunner(PYTHON_TEMP_DIR);
     const result = await runner.run('improve the greet function');
 
     expect(result.taskId).toBeTruthy();
@@ -376,7 +378,7 @@ describe('rdt run — python-basic fixture integration', () => {
   });
 
   it('should handle empty task request on Python project', async () => {
-    const runner = new TaskRunner({ projectRoot: PYTHON_TEMP_DIR });
+    const runner = createTestRunner(PYTHON_TEMP_DIR);
     const result = await runner.run('');
 
     expect(result).toHaveProperty('taskId');

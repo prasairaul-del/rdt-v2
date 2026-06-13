@@ -10,6 +10,7 @@ import { pickStep } from '../../src/core/runner/steps/pick-step';
 import { planStep } from '../../src/core/runner/steps/plan-step';
 import { reviewStep } from '../../src/core/runner/steps/review-step';
 import { scanStep } from '../../src/core/runner/steps/scan-step';
+import { createSilentTestLogger } from './utils/test-logger';
 
 // Mock node:child_process
 vi.mock('node:child_process', () => {
@@ -163,6 +164,7 @@ describe('Git Feature Branch Workflow', () => {
         model_policies: {},
         agents: {},
       },
+      logger: createSilentTestLogger(),
     });
   });
 

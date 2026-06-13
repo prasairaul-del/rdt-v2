@@ -5,6 +5,7 @@ import type { RdtConfig } from '../../src/config/schema';
 import { TaskRunner } from '../../src/core/task-runner';
 import { MockProvider } from '../../src/providers/mock-provider';
 import { ProviderRouter } from '../../src/router/provider-router';
+import { createSilentTestLogger } from './utils/test-logger';
 
 // ── Mocks ─────────────────────────────────────────────────────────
 
@@ -251,6 +252,7 @@ describe('TaskRunner Robustness & Failures', () => {
       projectRoot: TEST_DIR,
       rdtConfig: testConfig,
       providerRouter: router,
+      logger: createSilentTestLogger(),
     });
 
     const result = await runner.run('fix the multiply bug');
@@ -364,6 +366,7 @@ describe('TaskRunner Robustness & Failures', () => {
       projectRoot: TEST_DIR,
       rdtConfig: testConfig,
       providerRouter: router,
+      logger: createSilentTestLogger(),
     });
 
     const result = await runner.run('fix the multiply bug');

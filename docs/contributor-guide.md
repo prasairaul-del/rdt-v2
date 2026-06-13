@@ -139,6 +139,23 @@ stateDiagram-v2
 - **User-space Sandboxing**: Executions are performed inside a shadow workspace (sandbox CWD redirection) to prevent destructive side-effects on host files.
 - **Copy-on-Write / Junctions**: Sandbox uses NTFS directory junctions and Copy-on-Write file copies for subsecond initialization.
 - **Provider Policy Routing**: Adapts to rate limits, cooldowns, and fallbacks transparently.
+- **Lint Scope Hygiene**: Biome is configured to ignore generated and embedded-project paths (`dist/`, `node_modules/`, `.agent-backups/`, and `tests/fixtures/`) so full-repo lint focuses on first-party code and tests.
+- **Silent Test Logging**: `TaskLogger` accepts `{ silent: true }` as an opt-in constructor option. Tests should create loggers via `tests/unit/utils/test-logger.ts` when exercising `TaskRunner`, `runShellTool`, or `testRunnerTool`, unless the test is explicitly verifying console logging behavior.
+
+### Test Logger Guidance
+
+Use the silent test logger for tests that run task pipelines or stream shell output:
+
+```typescript
+import { createSilentTestLogger } from './utils/test-logger';
+
+const runner = new TaskRunner({
+  projectRoot,
+  logger: createSilentTestLogger(),
+});
+```
+
+The silent logger still records entries, supports spies, and emits task log events. It only suppresses console writes. Keep direct `new TaskLogger()` usage in tests that intentionally verify logger console behavior.
 
 ## 5. Dashboard Usability Surfaces
 

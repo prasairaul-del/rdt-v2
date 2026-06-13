@@ -16,6 +16,7 @@ import type { AgentInput, EditResult } from '../../src/agents/types';
 import { TaskRunner } from '../../src/core/task-runner';
 import type { TaskState } from '../../src/core/task-state';
 import { testRunnerTool } from '../../src/tools/test-runner';
+import { createSilentTestLogger } from './utils/test-logger';
 
 // Mock bun:sqlite
 vi.mock('bun:sqlite', () => ({
@@ -86,6 +87,7 @@ describe('Parallel Path Planning Trials', () => {
         model_policies: {},
         agents: {},
       },
+      logger: createSilentTestLogger(),
     });
 
     vi.clearAllMocks();

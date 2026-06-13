@@ -19,7 +19,7 @@ User Request → File Picker (selects files)
 - **TypeScript + Bun**: fast startup, good typing, easy CLI packaging
 - **Commander**: CLI framework for init/status/run/providers/dashboard commands
 - **SQLite**: local persistence for task logs, provider state, project metadata, and local vector indexing caches
-- **Vitest**: test framework with 227 tests across 11 suites (unit + integration)
+- **Vitest**: test framework with 263 tests across 19 suites (unit + integration)
 - **Biome**: formatting and linting
 - **Markdown memory**: knowledge.md and AGENTS.md before vector DB
 - **One task runner**: deterministic 13-state machine, no competing execution paths
@@ -74,5 +74,7 @@ Failure: → FAILED → ROLLING_BACK → FAILED_CLEAN or FAILED_DIRTY
 - **Vibe Mode** now includes readiness checks, task templates, deterministic plan preview, Learn Mode explanations, power recipes, command/check transparency, task timeline, decision visibility, API key managers, and one-click Keep/Undo controls.
 - **Dashboard readiness API** exposes project setup metadata at `GET /api/readiness` without leaking secret values.
 - **Archived dashboard screenshots** live under `docs/archive/screenshots/2026-06-13-vibe-dashboard/`.
+- **Full-repo Biome cleanup** completed. Biome ignores generated output and nested fixture repos so `bun run lint` stays focused on first-party source and tests.
+- **Silent test logging** implemented. Tests use `createSilentTestLogger()` for `TaskRunner`, `runShellTool`, and `testRunnerTool` paths, while explicit logger behavior tests still exercise console output.
 - **Process Redirection Sandbox** implemented and verified.
 - **Git auto-commits** and **VS Code integration** supported.

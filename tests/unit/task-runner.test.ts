@@ -11,9 +11,17 @@ import {
   addTaskError,
   createTaskState,
 } from '../../src/core/task-state';
+import { createSilentTestLogger } from './utils/test-logger';
 
 function transitionState(state: TaskState, to: TaskStatus) {
   new StateMachine(state, new TaskLogger()).transition(to);
+}
+
+function createTestRunner(projectRoot = process.cwd()): TaskRunner {
+  return new TaskRunner({
+    projectRoot,
+    logger: createSilentTestLogger(),
+  });
 }
 
 // Mock bun:sqlite since vitest can't resolve Bun built-in modules.
@@ -79,16 +87,12 @@ afterAll(() => {
 
 describe('TaskRunner', () => {
   it('should create a runner with project root', () => {
-    const runner = new TaskRunner({
-      projectRoot: process.cwd(),
-    });
+    const runner = createTestRunner();
     expect(runner).toBeDefined();
   });
 
   it('should run a task to completion', async () => {
-    const runner = new TaskRunner({
-      projectRoot: process.cwd(),
-    });
+    const runner = createTestRunner();
     const result = await runner.run('say hello');
 
     // Should complete with some status
@@ -98,9 +102,7 @@ describe('TaskRunner', () => {
   });
 
   it('should return a result with state information', async () => {
-    const runner = new TaskRunner({
-      projectRoot: process.cwd(),
-    });
+    const runner = createTestRunner();
     const result = await runner.run('test task');
 
     expect(result.state.status).toBeDefined();
@@ -109,18 +111,14 @@ describe('TaskRunner', () => {
   });
 
   it('should track provider usage', async () => {
-    const runner = new TaskRunner({
-      projectRoot: process.cwd(),
-    });
+    const runner = createTestRunner();
     const result = await runner.run('check provider tracking');
 
     expect(result.providerSummary).toBeTruthy();
   });
 
   it('should handle empty requests gracefully', async () => {
-    const runner = new TaskRunner({
-      projectRoot: process.cwd(),
-    });
+    const runner = createTestRunner();
     const result = await runner.run('');
 
     // Should not crash
@@ -132,9 +130,7 @@ describe('TaskRunner', () => {
 
 describe('State machine integration', () => {
   it('should transition through expected states for a successful run', async () => {
-    const runner = new TaskRunner({
-      projectRoot: process.cwd(),
-    });
+    const runner = createTestRunner();
     const result = await runner.run('simple task');
 
     // For a non-git project, should still complete
@@ -144,9 +140,7 @@ describe('State machine integration', () => {
   });
 
   it('should handle nonexistent project root gracefully', async () => {
-    const runner = new TaskRunner({
-      projectRoot: '/nonexistent/path/xyz_123',
-    });
+    const runner = createTestRunner('/nonexistent/path/xyz_123');
     const result = await runner.run('task in wrong dir');
 
     // Should handle gracefully — all I/O functions catch errors internally
@@ -156,9 +150,7 @@ describe('State machine integration', () => {
   });
 
   it('should build proper TaskResult on success', async () => {
-    const runner = new TaskRunner({
-      projectRoot: process.cwd(),
-    });
+    const runner = createTestRunner();
     const result = await runner.run('verify result structure');
 
     expect(result).toHaveProperty('success');
@@ -171,9 +163,7 @@ describe('State machine integration', () => {
   });
 
   it('should fail and throw an error when edit/review loop finishes and approved is false', async () => {
-    const runner = new TaskRunner({
-      projectRoot: process.cwd(),
-    });
+    const runner = createTestRunner();
 
     const originalReviewer = agentRegistry.get('reviewer');
     agentRegistry.register({
