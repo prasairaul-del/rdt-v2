@@ -45,7 +45,7 @@ rdt dashboard     # Launch the interactive Web dashboard
 
 ```bash
 bun install          # Install dependencies
-bun run test         # Run 262 tests across all suites
+bun run test         # Run 263 tests across all suites
 bun run typecheck    # Type-check the project
 bun run lint         # Lint with Biome
 bun run format       # Format with Biome
@@ -75,7 +75,7 @@ User Request → File Picker → Planner → Editor → Reviewer → Final Repor
 - **7 CLI commands** — `init`, `status`, `run`, `providers`, `dashboard`, `explain`, `undo` — built with Commander.
 - **Sequential Task Queue** — SQLite task queue replacing the single-task execution lock, allowing background sequencing of tasks.
 - **Native Provider Adapters** — Custom adapters for Google Gemini and Anthropic Claude messages APIs.
-- **Interactive Local Dashboard Web UI** — A beautiful dark/light-mode glassmorphic interface styled with custom Vanilla CSS variables. Features a dual-mode toggle switch between "Dev Mode" (displaying real-time task nodes, cost estimators, token trackers, and side-by-side parsed code diffs) and "Vibe Mode" (providing simplified plain-English changes, action templates, API key managers, and one-click Keep/Undo controls for non-technical users).
+- **Interactive Local Dashboard Web UI** — A beautiful dark/light-mode glassmorphic interface styled with custom Vanilla CSS variables. Features a dual-mode toggle switch between "Dev Mode" (displaying real-time task nodes, cost estimators, token trackers, parsed code diffs, timelines, and decision tabs) and "Vibe Mode" (providing readiness checks, deterministic plan previews, Learn Mode explanations, power recipes, command/check transparency, action templates, API key managers, and one-click Keep/Undo controls).
 - **Task Console and Queue Control** — Allows triggering coding tasks directly from the dashboard UI, backed by background execution queues.
 - **Context File Selector** — Includes an interactive workspace file checklist to let users manually include/exclude file contexts before launching a task.
 - **User-Space Shadow Sandbox** — A lightweight, zero-install workspace sandboxing mechanism that uses NTFS junctions/symlinks to expose dependencies (like `node_modules` and `.venv`) in 0 extra bytes of storage. All edits and test runs are isolated in the sandbox, copying back only successfully approved files to the host.
@@ -88,7 +88,7 @@ User Request → File Picker → Planner → Editor → Reviewer → Final Repor
 
 ### Test Suite
 
-**262 tests passing** across 18 unit and integration suites (~15s):
+**263 tests passing** across 19 unit and integration suites:
 
 | Suite | What it covers |
 |---|---|
@@ -99,7 +99,7 @@ User Request → File Picker → Planner → Editor → Reviewer → Final Repor
 | `unit/agents.test.ts` | Agent schemas, tool access enforcement |
 | `unit/task-runner.test.ts` | State machine, edit loops, rollback, dates |
 | `unit/cli.test.ts` | CLI option parsing and commands |
-| `unit/dashboard.test.ts` | API status, file listings, locks, background runs |
+| `unit/dashboard.test.ts` | API status, readiness metadata, file listings, locks, background runs |
 | `unit/sandbox.test.ts` | Sandbox cloning, edit isolation, safe cleanup |
 | `unit/phase3.test.ts` | Phase 3 filesystem tools, custom instructions, async logs |
 | `unit/phase4.test.ts` | Phase 4 database migrations, caching, telemetry cost/summary |
@@ -112,7 +112,7 @@ User Request → File Picker → Planner → Editor → Reviewer → Final Repor
 
 ```
 src/
-  cli/              CLI entrypoint + 5 commands (init, status, run, providers, dashboard)
+  cli/              CLI entrypoint + 7 commands (init, status, run, providers, dashboard, explain, undo)
   cli/dashboard/    Single Page App Web UI assets (HTML + Vanilla CSS/JS)
   core/             Task runner state machine, event system, logger
   agents/           4 agents (file-picker, planner, editor, reviewer)

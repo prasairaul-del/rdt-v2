@@ -68,9 +68,11 @@ Failure: → FAILED → ROLLING_BACK → FAILED_CLEAN or FAILED_DIRTY
 - **TF-IDF Fallback**: Local keyword matching algorithm automatically acts as a zero-cost offline fallback if dense embeddings (OpenAI/Ollama) are not configured.
 
 ## Current Status
-- **262 tests passing** across 19 suites.
+- **263 tests passing** across 19 suites.
 - **7 CLI commands** implemented (init, status, run, providers, dashboard, explain, undo).
-- **Interactive Web UI Dashboard** completed with state transitions, token trackers, cost estimators, file context selection checklist, parsed diff formatting, and Vibe Mode.
-- **Vibe Mode toggle** added to the dashboard, providing simplified plain-English changes, action templates, API key managers, and one-click Keep/Undo controls.
+- **Interactive Web UI Dashboard** completed with state transitions, token trackers, cost estimators, file context selection checklist, parsed diff formatting, Dev Mode, and Vibe Mode.
+- **Vibe Mode** now includes readiness checks, task templates, deterministic plan preview, Learn Mode explanations, power recipes, command/check transparency, task timeline, decision visibility, API key managers, and one-click Keep/Undo controls.
+- **Dashboard readiness API** exposes project setup metadata at `GET /api/readiness` without leaking secret values.
+- **Archived dashboard screenshots** live under `docs/archive/screenshots/2026-06-13-vibe-dashboard/`.
 - **Process Redirection Sandbox** implemented and verified.
 - **Git auto-commits** and **VS Code integration** supported.

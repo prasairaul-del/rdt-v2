@@ -139,3 +139,20 @@ stateDiagram-v2
 - **User-space Sandboxing**: Executions are performed inside a shadow workspace (sandbox CWD redirection) to prevent destructive side-effects on host files.
 - **Copy-on-Write / Junctions**: Sandbox uses NTFS directory junctions and Copy-on-Write file copies for subsecond initialization.
 - **Provider Policy Routing**: Adapts to rate limits, cooldowns, and fallbacks transparently.
+
+## 5. Dashboard Usability Surfaces
+
+The local dashboard has two complementary modes:
+
+- **Dev Mode**: Dense execution view with pipeline state, token/cost estimates, parsed diffs, checks, provider health, live logs, timeline, and decision tabs.
+- **Vibe Mode**: Guided task entry for vibe coders with project readiness, task templates, deterministic plan previews, Learn Mode explanations, power recipes, command/check transparency, task timeline, decision visibility, and Keep/Undo controls.
+
+`GET /api/readiness` returns safe dashboard readiness metadata:
+
+- project name and package manager
+- detected `test`, `typecheck`, `lint`, and `build` scripts
+- provider key presence as booleans only
+- local rule/config presence for `AGENTS.md`, `knowledge.md`, and `.rdt/config.yaml`
+- readiness level: `ready`, `partial`, or `needs_setup`
+
+Archived dashboard screenshots are stored under `docs/archive/screenshots/2026-06-13-vibe-dashboard/`.
