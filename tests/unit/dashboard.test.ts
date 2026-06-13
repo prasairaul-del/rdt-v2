@@ -17,7 +17,22 @@ vi.mock('bun:sqlite', () => ({
 }));
 
 // Mock TaskLogStore to avoid touching actual DB
-const mockLogs: any[] = [{ id: 'test-1', status: 'completed' }];
+type MockTaskLog = {
+  id: string;
+  status: string;
+  request?: string;
+  startedAt?: string;
+  errorMessage?: string;
+};
+
+type MockTaskLogUpdate = Partial<Omit<MockTaskLog, 'id'>>;
+
+type DashboardServeOptions = {
+  port: number;
+  fetch: (req: Request) => Response | Promise<Response>;
+};
+
+const mockLogs: MockTaskLog[] = [{ id: 'test-1', status: 'completed' }];
 vi.mock('../../src/storage/task-log-store', () => {
   return {
     TaskLogStore: class MockTaskLogStore {
@@ -37,7 +52,7 @@ vi.mock('../../src/storage/task-log-store', () => {
         mockLogs.push(log);
         return log;
       }
-      updateLog(id: string, updates: any) {
+      updateLog(id: string, updates: MockTaskLogUpdate) {
         const log = mockLogs.find((l) => l.id === id);
         if (log) {
           Object.assign(log, updates);
@@ -87,7 +102,7 @@ vi.mock('../../src/core/task-runner', () => {
 });
 
 describe('Dashboard Server API', () => {
-  let serveOptions: any = null;
+  let serveOptions: DashboardServeOptions | null = null;
   let projectRoot = '';
   let cwdSpy: ReturnType<typeof vi.spyOn> | null = null;
   const originalEnv = {
@@ -124,14 +139,19 @@ describe('Dashboard Server API', () => {
     writeFileSync(join(projectRoot, '.rdt', 'config.yaml'), 'version: 1');
     writeFileSync(join(projectRoot, 'bun.lockb'), '');
     cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(projectRoot);
-    globalThis.Bun = {
-      serve: (options: any) => {
+    const testGlobal = globalThis as unknown as {
+      Bun: {
+        serve: (options: DashboardServeOptions) => { stop: () => void };
+      };
+    };
+    testGlobal.Bun = {
+      serve: (options: DashboardServeOptions) => {
         serveOptions = options;
         return {
           stop: () => {},
         };
       },
-    } as any;
+    };
 
     const command = createDashboardCommand();
     // Parse arguments to trigger action callback
@@ -147,23 +167,30 @@ describe('Dashboard Server API', () => {
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
+  async function fetchDashboard(req: Request): Promise<Response> {
+    if (!serveOptions) {
+      throw new Error('Dashboard server was not registered');
+    }
+    return serveOptions.fetch(req);
+  }
+
   it('should register Bun.serve with port 3000', () => {
     expect(serveOptions).not.toBeNull();
-    expect(serveOptions.port).toBe(3000);
+    expect(serveOptions?.port).toBe(3000);
   });
 
   it('should support OPTIONS preflight request', async () => {
     const req = new Request('http://localhost:3000/api/status', {
       method: 'OPTIONS',
     });
-    const res = await serveOptions.fetch(req);
+    const res = await fetchDashboard(req);
     expect(res.status).toBe(200);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
   });
 
   it('GET /api/status should return running: false initially', async () => {
     const req = new Request('http://localhost:3000/api/status');
-    const res = await serveOptions.fetch(req);
+    const res = await fetchDashboard(req);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.running).toBe(false);
@@ -171,7 +198,7 @@ describe('Dashboard Server API', () => {
 
   it('GET /api/config should return workspace config', async () => {
     const req = new Request('http://localhost:3000/api/config');
-    const res = await serveOptions.fetch(req);
+    const res = await fetchDashboard(req);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.project.name).toBe('test-project');
@@ -183,7 +210,7 @@ describe('Dashboard Server API', () => {
     process.env.GEMINI_API_KEY = 'gemini-secret-value';
 
     const req = new Request('http://localhost:3000/api/readiness');
-    const res = await serveOptions.fetch(req);
+    const res = await fetchDashboard(req);
     expect(res.status).toBe(200);
 
     const json = await res.json();
@@ -219,7 +246,7 @@ describe('Dashboard Server API', () => {
 
   it('GET /api/files should return repository files list', async () => {
     const req = new Request('http://localhost:3000/api/files');
-    const res = await serveOptions.fetch(req);
+    const res = await fetchDashboard(req);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toContain('src/index.ts');
@@ -227,7 +254,7 @@ describe('Dashboard Server API', () => {
 
   it('GET /api/tasks should return recent tasks log list', async () => {
     const req = new Request('http://localhost:3000/api/tasks');
-    const res = await serveOptions.fetch(req);
+    const res = await fetchDashboard(req);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toBeInstanceOf(Array);
@@ -236,7 +263,7 @@ describe('Dashboard Server API', () => {
 
   it('GET /api/tasks/:id should return single task details', async () => {
     const req = new Request('http://localhost:3000/api/tasks/test-1');
-    const res = await serveOptions.fetch(req);
+    const res = await fetchDashboard(req);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.id).toBe('test-1');
@@ -244,7 +271,7 @@ describe('Dashboard Server API', () => {
     const reqNotFound = new Request(
       'http://localhost:3000/api/tasks/non-existent',
     );
-    const resNotFound = await serveOptions.fetch(reqNotFound);
+    const resNotFound = await fetchDashboard(reqNotFound);
     expect(resNotFound.status).toBe(404);
   });
 
@@ -255,14 +282,14 @@ describe('Dashboard Server API', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ request: 'fix divide by zero error' }),
     });
-    const res1 = await serveOptions.fetch(req1);
+    const res1 = await fetchDashboard(req1);
     expect(res1.status).toBe(200);
     const json1 = await res1.json();
     expect(json1.success).toBe(true);
 
     // 2. Lock status check
     const statusReq1 = new Request('http://localhost:3000/api/status');
-    const statusRes1 = await serveOptions.fetch(statusReq1);
+    const statusRes1 = await fetchDashboard(statusReq1);
     const statusJson1 = await statusRes1.json();
     expect(statusJson1.running).toBe(true);
 
@@ -272,7 +299,7 @@ describe('Dashboard Server API', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ request: 'another task' }),
     });
-    const res2 = await serveOptions.fetch(req2);
+    const res2 = await fetchDashboard(req2);
     expect(res2.status).toBe(200);
     const json2 = await res2.json();
     expect(json2.success).toBe(true);
@@ -280,7 +307,7 @@ describe('Dashboard Server API', () => {
 
     // 4. Verify queueCount is updated
     const statusReq2 = new Request('http://localhost:3000/api/status');
-    const statusRes2 = await serveOptions.fetch(statusReq2);
+    const statusRes2 = await fetchDashboard(statusReq2);
     const statusJson2 = await statusRes2.json();
     expect(statusJson2.queueCount).toBe(1);
 
@@ -301,7 +328,7 @@ describe('Dashboard Server API', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ request: '' }),
     });
-    const res = await serveOptions.fetch(req);
+    const res = await fetchDashboard(req);
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toContain('cannot be empty');

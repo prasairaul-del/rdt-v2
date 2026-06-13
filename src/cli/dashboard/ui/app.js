@@ -5,7 +5,7 @@ let tasks = [];
 let selectedTaskId = null;
 let config = null;
 let files = [];
-let selectedFilesOverride = new Set();
+const selectedFilesOverride = new Set();
 let isServerRunningTask = false;
 let vibeMode = localStorage.getItem('vibeMode') === 'true';
 let learnMode = localStorage.getItem('learnMode');
@@ -159,28 +159,32 @@ const powerRecipes = [
   {
     id: 'diagnose-failure',
     title: 'Diagnose a failure',
-    description: 'Trace the failing command, isolate the root cause, and keep the fix small.',
+    description:
+      'Trace the failing command, isolate the root cause, and keep the fix small.',
     prompt:
       'Diagnose the current failure. Identify the root cause, inspect the smallest relevant files, and apply the smallest safe fix with the exact verification command that proves it.',
   },
   {
     id: 'feature-slice',
     title: 'Ship a feature slice',
-    description: 'Break a request into a small deliverable and verify each behavior.',
+    description:
+      'Break a request into a small deliverable and verify each behavior.',
     prompt:
       'Implement a narrow feature slice. Clarify the user-facing behavior, edit only the needed files, and verify the change with focused checks.',
   },
   {
     id: 'hardening-pass',
     title: 'Hardening pass',
-    description: 'Review a completed change for regressions, cleanup, and missing checks.',
+    description:
+      'Review a completed change for regressions, cleanup, and missing checks.',
     prompt:
       'Run a hardening pass on the latest work. Review the diff, look for edge cases, tighten commands or tests, and report any remaining risk clearly.',
   },
   {
     id: 'ui-power-polish',
     title: 'Power UI polish',
-    description: 'Refine the interface while protecting the current flow and data contract.',
+    description:
+      'Refine the interface while protecting the current flow and data contract.',
     prompt:
       'Polish the UI for experienced use. Improve density, hierarchy, and workflow clarity without changing backend behavior or unrelated styling.',
   },
@@ -295,13 +299,15 @@ async function runTask() {
 
     if (!res.ok) {
       const err = await res.json();
-      alert('Failed to start task: ' + (err.error || 'Unknown error'));
+      alert(`Failed to start task: ${err.error || 'Unknown error'}`);
       updateServerStatusBadge(false);
     } else {
       // Clear file checklist highlights
       selectedFilesOverride.clear();
       const checkboxes = document.querySelectorAll('.file-explorer-item input');
-      checkboxes.forEach((c) => (c.checked = false));
+      for (const checkbox of checkboxes) {
+        checkbox.checked = false;
+      }
     }
   } catch (err) {
     console.error(err);
@@ -615,10 +621,10 @@ function renderDiffTab(task) {
   }
 
   let filesList = `<div style="margin-bottom: 1rem;"><strong>Modified Files:</strong><div class="file-tag-list">`;
-  task.changedFiles.forEach((f) => {
+  for (const f of task.changedFiles) {
     filesList += `<span class="file-tag" style="border-color: var(--accent-green)">${escapeHtml(f)}</span>`;
-  });
-  filesList += `</div></div>`;
+  }
+  filesList += '</div></div>';
 
   let diffContent = '';
   if (!task.diff) {
@@ -642,7 +648,7 @@ function parseAndRenderDiff(diffText) {
   let currentLines = [];
 
   const lines = diffText.split('\n');
-  lines.forEach((line) => {
+  for (const line of lines) {
     if (line.startsWith('diff --git ')) {
       if (currentFile) {
         fileDiffs.push({ file: currentFile, lines: currentLines });
@@ -654,13 +660,13 @@ function parseAndRenderDiff(diffText) {
     } else if (currentFile) {
       currentLines.push(line);
     }
-  });
+  }
   if (currentFile) {
     fileDiffs.push({ file: currentFile, lines: currentLines });
   }
 
   let html = '';
-  fileDiffs.forEach((fd, index) => {
+  for (const [index, fd] of fileDiffs.entries()) {
     // Calculate add/remove counts
     const added = fd.lines.filter(
       (l) => l.startsWith('+') && !l.startsWith('+++'),
@@ -671,7 +677,7 @@ function parseAndRenderDiff(diffText) {
 
     // Render lines with line numbers
     let lineIdx = 0;
-    let diffBodyText = fd.lines
+    const diffBodyText = fd.lines
       .map((line) => {
         let lineClass = '';
         if (line.startsWith('+') && !line.startsWith('+++')) {
@@ -706,7 +712,7 @@ function parseAndRenderDiff(diffText) {
             </div>
           </div>
         `;
-  });
+  }
 
   return html;
 }
@@ -726,9 +732,10 @@ function renderChecksTab(task) {
   }
 
   let html = `<div class="checks-list">`;
-  checks.forEach((checkObj) => {
+  for (const checkObj of checks) {
     const statusLabel = checkObj.status === 'pass' ? 'PASSED' : 'FAILED';
-    const statusClass = checkObj.status === 'pass' ? 'status-success' : 'status-failed';
+    const statusClass =
+      checkObj.status === 'pass' ? 'status-success' : 'status-failed';
 
     html += `
           <div class="check-item">
@@ -739,8 +746,8 @@ function renderChecksTab(task) {
             <div class="check-output">${escapeHtml(checkObj.detail || 'No output summary provided')}</div>
           </div>
         `;
-  });
-  html += `</div>`;
+  }
+  html += '</div>';
   return html;
 }
 
@@ -751,7 +758,7 @@ function renderProvidersTab(task) {
   }
 
   let html = `<div class="provider-grid">`;
-  task.providersUsed.forEach((p) => {
+  for (const p of task.providersUsed) {
     const [provId, modelId] = p.split('/');
     html += `
           <div class="provider-card">
@@ -762,19 +769,19 @@ function renderProvidersTab(task) {
             <span class="provider-model-desc">Model: ${escapeHtml(modelId || 'default')}</span>
           </div>
         `;
-  });
-  html += `</div>`;
+  }
+  html += '</div>';
   return html;
 }
 
 // Switch active detail tabs
 function switchTab(tabId) {
-  document
-    .querySelectorAll('.tab-button')
-    .forEach((btn) => btn.classList.remove('active'));
-  document
-    .querySelectorAll('.tab-content')
-    .forEach((content) => content.classList.remove('active'));
+  for (const btn of document.querySelectorAll('.tab-button')) {
+    btn.classList.remove('active');
+  }
+  for (const content of document.querySelectorAll('.tab-content')) {
+    content.classList.remove('active');
+  }
 
   const btn = Array.from(document.querySelectorAll('.tab-button')).find((b) =>
     b.getAttribute('onclick').includes(tabId),
@@ -891,12 +898,12 @@ function renderWelcomePanel() {
   let providersHTML = '';
   if (providersHealth && providersHealth.length > 0) {
     providersHTML = `<div class="provider-grid">`;
-    providersHealth.forEach((p) => {
+    for (const p of providersHealth) {
       let statusClass = 'status-success';
       let statusText = 'Healthy';
       if (p.status === 'cooldown') {
         statusClass = 'status-fixing';
-        statusText = `Cooldown`;
+        statusText = 'Cooldown';
       } else if (p.status === 'degraded') {
         statusClass = 'status-failed';
         statusText = 'Degraded';
@@ -918,13 +925,13 @@ function renderWelcomePanel() {
               ${statsTag}
             </div>
           `;
-    });
-    providersHTML += `</div>`;
+    }
+    providersHTML += '</div>';
   } else if (config?.providers && config.providers.length > 0) {
     // Fallback to config provider display if health endpoint isn't fully loaded yet
     providersHTML = `<div class="provider-grid">`;
-    config.providers.forEach((p) => {
-      if (!p.enabled) return;
+    for (const p of config.providers) {
+      if (!p.enabled) continue;
       const modelsText = p.models.map((m) => m.id).join(', ') || 'Default';
       providersHTML += `
             <div class="provider-card">
@@ -936,8 +943,8 @@ function renderWelcomePanel() {
               <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Models: ${escapeHtml(modelsText)}</span>
             </div>
           `;
-    });
-    providersHTML += `</div>`;
+    }
+    providersHTML += '</div>';
   } else {
     providersHTML = `<p style="font-size: 0.9rem; color: var(--text-muted);">No provider configurations found.</p>`;
   }
@@ -949,7 +956,7 @@ function renderWelcomePanel() {
           <input type="text" id="fileFilterInput" placeholder="Search & filter files..." oninput="filterFiles()" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); color: var(--text-color); border-radius: var(--border-radius); padding: 0.45rem 0.85rem; width: 100%; box-sizing: border-box; margin-bottom: 0.75rem; font-size: 0.85rem;" />
           <div class="file-explorer-card" style="max-height: 250px; overflow-y: auto;">
         `;
-    files.forEach((f) => {
+    for (const f of files) {
       const isSelected = selectedFilesOverride.has(f);
       filesHTML += `
             <div class="file-explorer-item">
@@ -957,8 +964,8 @@ function renderWelcomePanel() {
               <label for="file-check-${escapeHtml(f)}">${escapeHtml(f)}</label>
             </div>
           `;
-    });
-    filesHTML += `</div>`;
+    }
+    filesHTML += '</div>';
   } else {
     filesHTML = `<p style="font-size: 0.9rem; color: var(--text-muted);">No files found in workspace.</p>`;
   }
@@ -1045,19 +1052,20 @@ async function loadReadiness() {
 function filterFiles() {
   const query = document.getElementById('fileFilterInput').value.toLowerCase();
   const items = document.querySelectorAll('.file-explorer-item');
-  items.forEach((item) => {
+  for (const item of items) {
     const label = item.querySelector('label').innerText.toLowerCase();
     if (label.includes(query)) {
       item.style.display = 'flex';
     } else {
       item.style.display = 'none';
     }
-  });
+  }
 }
 
 function stripAnsi(text) {
   if (!text) return '';
   return text.replace(
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences include control characters.
     /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
     '',
   );
@@ -1163,7 +1171,7 @@ function renderChecksSummary(task) {
   const testsRun = Array.isArray(task.testsRun) ? task.testsRun : [];
   const entries = [];
 
-  testsRun.forEach((item) => {
+  for (const item of testsRun) {
     if (typeof item === 'string') {
       entries.push({
         label: item,
@@ -1179,9 +1187,9 @@ function renderChecksSummary(task) {
         detail: item.outputSummary || item.output || item.message || '',
       });
     }
-  });
+  }
 
-  checks.forEach((item) => {
+  for (const item of checks) {
     if (typeof item === 'string') {
       entries.push({
         label: item,
@@ -1197,7 +1205,7 @@ function renderChecksSummary(task) {
         detail: item.outputSummary || item.output || item.message || '',
       });
     }
-  });
+  }
 
   if (entries.length === 0) {
     return '<p class="learn-empty">No checks were recorded, so RDT does not have verification data to explain here.</p>';
@@ -1269,14 +1277,12 @@ function getTaskChecks(task) {
   if (Array.isArray(task.testsRun)) source.push(...task.testsRun);
   if (Array.isArray(task.checks)) source.push(...task.checks);
   if (Array.isArray(task.reviewResults)) {
-    task.reviewResults.forEach((review) => {
+    for (const review of task.reviewResults) {
       if (review?.testsRun) source.push(...review.testsRun);
-    });
+    }
   }
 
-  return source
-    .map((item) => normalizeCheckEntry(item))
-    .filter(Boolean);
+  return source.map((item) => normalizeCheckEntry(item)).filter(Boolean);
 }
 
 function normalizeCheckEntry(item) {
@@ -1309,7 +1315,7 @@ function summarizeTimeline(task) {
   const reviewCount = Array.isArray(task.reviewResults)
     ? task.reviewResults.length
     : 0;
-  const hasDiff = Boolean(task.diff && task.diff.trim());
+  const hasDiff = Boolean(task.diff?.trim());
   const stages = [
     {
       label: 'Created',
@@ -1376,10 +1382,13 @@ function renderCompactTimeline(task) {
 function renderDecisionVisibility(task) {
   const planSteps = Array.isArray(task.plan?.steps) ? task.plan.steps : [];
   const risks = Array.isArray(task.plan?.risks) ? task.plan.risks : [];
-  const review = Array.isArray(task.reviewResults) && task.reviewResults.length > 0
-    ? task.reviewResults[task.reviewResults.length - 1]
-    : null;
-  const requiredFixes = Array.isArray(review?.requiredFixes) ? review.requiredFixes : [];
+  const review =
+    Array.isArray(task.reviewResults) && task.reviewResults.length > 0
+      ? task.reviewResults[task.reviewResults.length - 1]
+      : null;
+  const requiredFixes = Array.isArray(review?.requiredFixes)
+    ? review.requiredFixes
+    : [];
   const issues = Array.isArray(review?.issues) ? review.issues : [];
 
   const stepItems = planSteps.length
@@ -1399,15 +1408,24 @@ function renderDecisionVisibility(task) {
     : '<p class="learn-empty">No structured plan steps were recorded.</p>';
 
   const riskItems = risks.length
-    ? risks.map((risk) => `<span class="file-tag">${escapeHtml(risk)}</span>`).join('')
+    ? risks
+        .map((risk) => `<span class="file-tag">${escapeHtml(risk)}</span>`)
+        .join('')
     : '<span class="preview-empty">No explicit risks recorded.</span>';
 
   const issueItems = issues.length
-    ? issues.map((issue) => `<span class="file-tag file-tag-changed">${escapeHtml(issue)}</span>`).join('')
+    ? issues
+        .map(
+          (issue) =>
+            `<span class="file-tag file-tag-changed">${escapeHtml(issue)}</span>`,
+        )
+        .join('')
     : '<span class="preview-empty">No review issues recorded.</span>';
 
   const fixItems = requiredFixes.length
-    ? requiredFixes.map((fix) => `<span class="file-tag">${escapeHtml(fix)}</span>`).join('')
+    ? requiredFixes
+        .map((fix) => `<span class="file-tag">${escapeHtml(fix)}</span>`)
+        .join('')
     : '<span class="preview-empty">No required fixes recorded.</span>';
 
   return `
@@ -1447,8 +1465,7 @@ function renderPowerCheckTransparency(task) {
   const plannedHtml = plannedChecks.length
     ? plannedChecks
         .map(
-          (check) =>
-            `<span class="preview-check">${escapeHtml(check)}</span>`,
+          (check) => `<span class="preview-check">${escapeHtml(check)}</span>`,
         )
         .join('')
     : '<span class="preview-empty">No default checks inferred.</span>';
@@ -1668,9 +1685,9 @@ async function saveApiKeys() {
   const gemKey = document.getElementById('geminiKey').value.trim();
 
   const payload = {};
-  if (orKey) payload['OPENROUTER_API_KEY'] = orKey;
-  if (antKey) payload['ANTHROPIC_API_KEY'] = antKey;
-  if (gemKey) payload['GEMINI_API_KEY'] = gemKey;
+  if (orKey) payload.OPENROUTER_API_KEY = orKey;
+  if (antKey) payload.ANTHROPIC_API_KEY = antKey;
+  if (gemKey) payload.GEMINI_API_KEY = gemKey;
 
   try {
     const res = await fetch('/api/config/keys', {
@@ -1682,10 +1699,10 @@ async function saveApiKeys() {
       alert('API keys saved successfully to your .env file!');
     } else {
       const err = await res.json();
-      alert('Failed to save API keys: ' + (err.error || 'unknown error'));
+      alert(`Failed to save API keys: ${err.error || 'unknown error'}`);
     }
   } catch (err) {
-    alert('Failed to communicate with server: ' + err);
+    alert(`Failed to communicate with server: ${err}`);
   }
 }
 
@@ -1709,10 +1726,10 @@ async function revertVibeTask(taskId) {
       selectTask(body.taskId);
     } else {
       const err = await res.json();
-      alert('Failed to rollback task: ' + (err.error || 'unknown error'));
+      alert(`Failed to rollback task: ${err.error || 'unknown error'}`);
     }
   } catch (err) {
-    alert('Failed to communicate with server: ' + err);
+    alert(`Failed to communicate with server: ${err}`);
   }
 }
 
@@ -1727,8 +1744,8 @@ async function loadPastLogs(taskId) {
       const text = await res.text();
       consoleDiv.innerHTML = '';
       const lines = text.split('\n');
-      lines.forEach((line) => {
-        if (!line.trim()) return;
+      for (const line of lines) {
+        if (!line.trim()) continue;
         const cleanLine = stripAnsi(line);
         const logLine = document.createElement('div');
         if (cleanLine.includes('ERROR')) {
@@ -1744,7 +1761,7 @@ async function loadPastLogs(taskId) {
         }
         logLine.innerText = cleanLine;
         consoleDiv.appendChild(logLine);
-      });
+      }
       consoleDiv.scrollTop = consoleDiv.scrollHeight;
     } else {
       consoleDiv.innerHTML =
@@ -1766,10 +1783,10 @@ async function cancelCurrentTask() {
       loadTasks();
     } else {
       const body = await res.json();
-      alert('Failed to cancel task: ' + (body.error || 'unknown error'));
+      alert(`Failed to cancel task: ${body.error || 'unknown error'}`);
     }
   } catch (err) {
-    alert('Error communicating with server: ' + err);
+    alert(`Error communicating with server: ${err}`);
   }
 }
 
