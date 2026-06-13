@@ -15,27 +15,39 @@ import { VectorSearch } from '../../src/project-context/vector-search';
 import { MockProvider } from '../../src/providers/mock-provider';
 import { ProviderRouter } from '../../src/router/provider-router';
 
+interface MockVectorRow {
+  path: string;
+  hash: string;
+  terms_freq: string;
+  dense_vector: string | null;
+  last_indexed_at: string;
+}
+
+interface MockDatabaseConstructor {
+  store: Map<string, MockVectorRow>;
+}
+
 // Mock bun:sqlite since vitest runs in Node.js where bun:sqlite is not resolved.
 vi.mock('bun:sqlite', () => {
   class MockDatabase {
-    static store = new Map<string, any>();
+    static store = new Map<string, MockVectorRow>();
 
     exec(_sql: string) {}
 
-    run(sql: string, ...params: any[]) {
+    run(sql: string, ...params: unknown[]) {
       const store = MockDatabase.store;
       if (sql.includes('INSERT OR REPLACE')) {
         const [path, hash, terms_freq, dense_vector, last_indexed_at] = params;
-        store.set(path, {
-          path,
-          hash,
-          terms_freq,
-          dense_vector,
-          last_indexed_at,
+        store.set(String(path), {
+          path: String(path),
+          hash: String(hash),
+          terms_freq: String(terms_freq),
+          dense_vector: typeof dense_vector === 'string' ? dense_vector : null,
+          last_indexed_at: String(last_indexed_at),
         });
       } else if (sql.includes('DELETE FROM')) {
         const [path] = params;
-        store.delete(path);
+        store.delete(String(path));
       }
     }
 
@@ -46,20 +58,21 @@ vi.mock('bun:sqlite', () => {
           const val = store.get(path);
           return val ? { hash: val.hash } : null;
         },
-        run: (...params: any[]) => {
+        run: (...params: unknown[]) => {
           if (sql.includes('INSERT OR REPLACE')) {
             const [path, hash, terms_freq, dense_vector, last_indexed_at] =
               params;
-            store.set(path, {
-              path,
-              hash,
-              terms_freq,
-              dense_vector,
-              last_indexed_at,
+            store.set(String(path), {
+              path: String(path),
+              hash: String(hash),
+              terms_freq: String(terms_freq),
+              dense_vector:
+                typeof dense_vector === 'string' ? dense_vector : null,
+              last_indexed_at: String(last_indexed_at),
             });
           } else if (sql.includes('DELETE FROM')) {
             const [path] = params;
-            store.delete(path);
+            store.delete(String(path));
           }
         },
         all: () => {
@@ -88,6 +101,11 @@ vi.mock('bun:sqlite', () => {
   return { Database: MockDatabase };
 });
 
+beforeEach(() => {
+  // Clear the in-memory mock store before each test run
+  (Database as unknown as MockDatabaseConstructor).store.clear();
+});
+
 const TEST_DIR = resolve(process.cwd(), 'tmp-test-vector-search');
 
 beforeAll(() => {
@@ -112,11 +130,6 @@ beforeAll(() => {
 
 afterAll(() => {
   if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
-});
-
-beforeEach(() => {
-  // Clear the in-memory mock store before each test run
-  (Database as any).store?.clear();
 });
 
 describe('VectorSearch Local Search Engine', () => {

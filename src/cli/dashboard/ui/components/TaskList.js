@@ -15,7 +15,8 @@ export function renderTaskList(
   tasks.forEach((task, idx) => {
     const item = document.createElement('div');
     item.className = `task-item ${task.id === selectedTaskId ? 'active' : ''}`;
-    item.onclick = () => selectTask(task.id === selectedTaskId ? null : task.id);
+    item.onclick = () =>
+      selectTask(task.id === selectedTaskId ? null : task.id);
 
     const timeStr = new Date(task.startedAt).toLocaleTimeString([], {
       hour: '2-digit',

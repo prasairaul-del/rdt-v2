@@ -104,8 +104,24 @@ export interface VectorSearchResult {
   reason: string;
 }
 
+interface SqliteQuery<T> {
+  all(): T[];
+  get(...params: unknown[]): T | null;
+}
+
+interface SqliteDatabase {
+  exec(sql: string): void;
+  run(sql: string, ...params: unknown[]): unknown;
+  query<T = unknown>(sql: string): SqliteQuery<T>;
+  close(): void;
+}
+
+interface TableInfoRow {
+  name: string;
+}
+
 export class VectorSearch {
-  private db: any;
+  private db?: SqliteDatabase;
   private projectRoot: string;
   private router?: ProviderRouter;
 
@@ -121,7 +137,7 @@ export class VectorSearch {
     }
     const dbPath = join(rdtDir, 'vector-cache.db');
     const { Database } = await import('bun:sqlite');
-    this.db = new Database(dbPath);
+    this.db = new Database(dbPath) as SqliteDatabase;
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.db.exec('PRAGMA busy_timeout = 5000;');
     this.db.exec(`
@@ -139,8 +155,8 @@ export class VectorSearch {
     // Backwards-compatible migration to add columns if they don't exist
     try {
       const tableInfo = this.db
-        .query('PRAGMA table_info(files_index)')
-        .all() as any[];
+        .query<TableInfoRow>('PRAGMA table_info(files_index)')
+        .all();
       const columns = tableInfo.map((col) => col.name);
       if (!columns.includes('size')) {
         this.db.exec('ALTER TABLE files_index ADD COLUMN size INTEGER;');
@@ -154,6 +170,7 @@ export class VectorSearch {
   }
 
   async indexRepository(repoMap: RepoMap): Promise<number> {
+    const db = this.requireDb();
     let indexedCount = 0;
     const fileEntries = repoMap.entries.filter((e) => e.type === 'file');
 
@@ -166,7 +183,7 @@ export class VectorSearch {
       if (entry.size > 500_000) continue;
 
       // Check cache using size and mtimeMs
-      const cached = this.db
+      const cached = db
         .query('SELECT hash, size, mtime_ms FROM files_index WHERE path = ?')
         .get(entry.path) as {
         hash: string;
@@ -194,7 +211,7 @@ export class VectorSearch {
 
       if (cached && cached.hash === hash) {
         // If content is same but metadata differed, update metadata in DB to avoid reading next time
-        this.db.run(
+        db.run(
           'UPDATE files_index SET size = ?, mtime_ms = ? WHERE path = ?',
           entry.size,
           entry.mtimeMs ?? null,
@@ -222,7 +239,7 @@ export class VectorSearch {
         }
       }
 
-      this.db.run(
+      db.run(
         `INSERT OR REPLACE INTO files_index (path, hash, terms_freq, dense_vector, size, mtime_ms, last_indexed_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         entry.path,
@@ -239,14 +256,14 @@ export class VectorSearch {
 
     // 2. Remove files that no longer exist in the repository
     const dbPaths = (
-      this.db.query('SELECT path FROM files_index').all() as Array<{
+      db.query('SELECT path FROM files_index').all() as Array<{
         path: string;
       }>
     ).map((r) => r.path);
     const repoPaths = new Set(fileEntries.map((e) => e.path));
     for (const dbPath of dbPaths) {
       if (!repoPaths.has(dbPath)) {
-        this.db.run('DELETE FROM files_index WHERE path = ?', dbPath);
+        db.run('DELETE FROM files_index WHERE path = ?', dbPath);
       }
     }
 
@@ -254,6 +271,7 @@ export class VectorSearch {
   }
 
   async search(query: string, limit = 10): Promise<VectorSearchResult[]> {
+    const db = this.requireDb();
     const queryTokens = tokenize(query);
     if (queryTokens.length === 0) return [];
 
@@ -261,7 +279,7 @@ export class VectorSearch {
     if (this.router) {
       try {
         const queryVector = await this.router.embed(query);
-        const rows = this.db
+        const rows = db
           .query(
             'SELECT path, dense_vector FROM files_index WHERE dense_vector IS NOT NULL',
           )
@@ -294,7 +312,7 @@ export class VectorSearch {
     }
 
     // 2. TF-IDF sparse similarity search
-    const rows = this.db
+    const rows = db
       .query('SELECT path, terms_freq FROM files_index')
       .all() as Array<{
       path: string;
@@ -404,5 +422,12 @@ export class VectorSearch {
     if (this.db) {
       this.db.close();
     }
+  }
+
+  private requireDb(): SqliteDatabase {
+    if (!this.db) {
+      throw new Error('VectorSearch database has not been initialized');
+    }
+    return this.db;
   }
 }

@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs';
+import { type Stats, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import type { RepoMap, RepoMapEntry } from './repo-map';
 
@@ -80,7 +80,7 @@ export function scanRepo(
 
       if (shouldIgnore(relPath)) continue;
 
-      let stat;
+      let stat: Stats;
       try {
         stat = statSync(fullPath);
       } catch {

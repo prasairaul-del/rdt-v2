@@ -1,8 +1,9 @@
+import type { RdtConfig } from '../../config/schema';
 import type { ProviderRouter } from '../../router/provider-router';
 import type { ProviderStateStore } from '../../storage/provider-state-store';
 import type { TaskLogStore } from '../../storage/task-log-store';
-import type { RdtConfig } from '../../config/schema';
 import type { TaskLogger } from '../logger';
+import type { ExecutionContext } from './execution-context';
 
 export type TaskStatus =
   | 'created'
@@ -128,7 +129,7 @@ export interface TaskResult {
 export interface StepContext {
   state: TaskState;
   config: TaskRunnerConfig;
-  executionContext: any; // Using any for now to avoid circular dependency
+  executionContext: ExecutionContext;
   router?: ProviderRouter;
   logger: TaskLogger;
   sandboxCwd?: string;

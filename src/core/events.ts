@@ -54,22 +54,22 @@ export class TaskEventBus {
     };
 
     // Notify type-specific listeners
-    this.listeners.get(type)?.forEach((fn) => {
+    for (const fn of this.listeners.get(type) ?? []) {
       try {
         fn(event);
       } catch {
         /* swallow */
       }
-    });
+    }
 
     // Notify global listeners
-    this.globalListeners.forEach((fn) => {
+    for (const fn of this.globalListeners) {
       try {
         fn(event);
       } catch {
         /* swallow */
       }
-    });
+    }
   }
 
   emitStateChange(taskId: string, from: TaskStatus, to: TaskStatus): void {

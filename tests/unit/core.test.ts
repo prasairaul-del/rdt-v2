@@ -6,12 +6,21 @@ import {
   TaskError,
   ToolExecutionError,
 } from '../../src/core/errors';
-import { TaskEventBus, globalEventBus } from '../../src/core/events';
+import {
+  type TaskEvent,
+  TaskEventBus,
+  globalEventBus,
+} from '../../src/core/events';
 import { TaskLogger } from '../../src/core/logger';
-import { addTaskError, createTaskState } from '../../src/core/task-state';
 import { StateMachine } from '../../src/core/runner/state-machine';
+import {
+  type TaskState,
+  type TaskStatus,
+  addTaskError,
+  createTaskState,
+} from '../../src/core/task-state';
 
-function transitionState(state: any, to: any) {
+function transitionState(state: TaskState, to: TaskStatus) {
   new StateMachine(state, new TaskLogger()).transition(to);
 }
 
@@ -196,7 +205,7 @@ describe('TaskEventBus', () => {
 
   it('should emit state change events', () => {
     const bus = new TaskEventBus();
-    let received: any;
+    let received: Record<string, unknown> | undefined;
 
     bus.on('task:state_change', (event) => {
       received = event.data;
@@ -210,7 +219,7 @@ describe('TaskEventBus', () => {
 
   it('should emit error events', () => {
     const bus = new TaskEventBus();
-    let received: any;
+    let received: Record<string, unknown> | undefined;
 
     bus.on('task:error', (event) => {
       received = event.data;
@@ -223,7 +232,7 @@ describe('TaskEventBus', () => {
 
   it('should emit progress events', () => {
     const bus = new TaskEventBus();
-    let received: any;
+    let received: Record<string, unknown> | undefined;
 
     bus.on('task:progress', (event) => {
       received = event.data;
@@ -261,13 +270,13 @@ describe('TaskEventBus', () => {
 
   it('should include timestamp in events', () => {
     const bus = new TaskEventBus();
-    let event: any;
+    let event: TaskEvent | undefined;
     bus.on('task:created', (e) => {
       event = e;
     });
     bus.emit('task:created', 't1');
-    expect(event.timestamp).toBeDefined();
-    expect(new Date(event.timestamp).getTime()).not.toBeNaN();
+    expect(event?.timestamp).toBeDefined();
+    expect(new Date(event?.timestamp ?? '').getTime()).not.toBeNaN();
   });
 });
 

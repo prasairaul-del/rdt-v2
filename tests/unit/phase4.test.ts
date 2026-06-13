@@ -1,20 +1,53 @@
+import * as fs from 'node:fs';
+import { join, resolve } from 'node:path';
 import {
+  afterAll,
+  beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
   vi,
-  beforeEach,
-  beforeAll,
-  afterAll,
 } from 'vitest';
-import { VectorSearch } from '../../src/project-context/vector-search';
+import type { RdtConfig } from '../../src/config/schema';
+import type { TaskResult } from '../../src/core/runner/types';
 import { TaskRunner } from '../../src/core/task-runner';
 import type { TaskState } from '../../src/core/task-state';
-import * as fs from 'node:fs';
-import { join, resolve } from 'node:path';
+import { VectorSearch } from '../../src/project-context/vector-search';
 
 // Mock bun:sqlite
-const mockDbStore = new Map<string, any>();
+interface MockDbRow {
+  path?: string;
+  hash?: string;
+  terms_freq?: string;
+  dense_vector?: string | null;
+  size?: number | null;
+  mtime_ms?: number | null;
+}
+
+type TaskRunnerInternals = {
+  calculateEstimatedCost: (
+    providerId: string,
+    modelId: string,
+    promptTokens: number,
+    completionTokens: number,
+  ) => number;
+  buildResult: (
+    state: TaskState,
+    success: boolean,
+    error?: string,
+  ) => TaskResult;
+};
+
+const minimalRdtConfig = {
+  runtime: {
+    max_edit_passes: 3,
+    rollback_on_failed_task: true,
+  },
+  providers: [],
+} as unknown as RdtConfig;
+
+const mockDbStore = new Map<string, MockDbRow>();
 const mockExecCalls: string[] = [];
 let mockTableColumns = [
   { name: 'path' },
@@ -26,34 +59,32 @@ let mockTableColumns = [
 
 vi.mock('bun:sqlite', () => {
   class MockDatabase {
-    constructor() {}
-
     exec(sql: string) {
       mockExecCalls.push(sql);
     }
 
-    run(sql: string, ...params: any[]) {
+    run(sql: string, ...params: unknown[]) {
       if (sql.includes('INSERT OR REPLACE')) {
         const [path, hash, terms_freq, dense_vector, size, mtime_ms] = params;
-        mockDbStore.set(path, {
-          path,
-          hash,
-          terms_freq,
-          dense_vector,
-          size,
-          mtime_ms,
+        mockDbStore.set(String(path), {
+          path: String(path),
+          hash: String(hash),
+          terms_freq: String(terms_freq),
+          dense_vector: typeof dense_vector === 'string' ? dense_vector : null,
+          size: typeof size === 'number' ? size : null,
+          mtime_ms: typeof mtime_ms === 'number' ? mtime_ms : null,
         });
       } else if (sql.includes('UPDATE files_index')) {
         const [size, mtime_ms, path] = params;
-        const existing = mockDbStore.get(path) || {};
-        mockDbStore.set(path, {
+        const existing = mockDbStore.get(String(path)) || {};
+        mockDbStore.set(String(path), {
           ...existing,
-          size,
-          mtime_ms,
+          size: typeof size === 'number' ? size : null,
+          mtime_ms: typeof mtime_ms === 'number' ? mtime_ms : null,
         });
       } else if (sql.includes('DELETE FROM')) {
         const [path] = params;
-        mockDbStore.delete(path);
+        mockDbStore.delete(String(path));
       }
     }
 
@@ -87,17 +118,12 @@ describe('Phase 4: Telemetry Profiling', () => {
   it('correctly calculates costs for Sonnet/GPT-4o, mini, and fallback models', () => {
     const runner = new TaskRunner({
       projectRoot: process.cwd(),
-      rdtConfig: {
-        runtime: {
-          max_edit_passes: 3,
-          rollback_on_failed_task: true,
-        },
-        providers: [],
-      } as any,
+      rdtConfig: minimalRdtConfig,
     });
+    const runnerInternals = runner as unknown as TaskRunnerInternals;
 
     // Claude 3.5 Sonnet / GPT-4o: $3/$15 per M
-    const costSonnet = (runner as any).calculateEstimatedCost(
+    const costSonnet = runnerInternals.calculateEstimatedCost(
       'anthropic',
       'claude-3-5-sonnet',
       1000000,
@@ -106,7 +132,7 @@ describe('Phase 4: Telemetry Profiling', () => {
     expect(costSonnet).toBe(18.0); // $3 + $15
 
     // Mini models: $0.15/$0.6 per M
-    const costMini = (runner as any).calculateEstimatedCost(
+    const costMini = runnerInternals.calculateEstimatedCost(
       'openai',
       'gpt-4o-mini',
       1000000,
@@ -115,7 +141,7 @@ describe('Phase 4: Telemetry Profiling', () => {
     expect(costMini).toBe(0.75); // $0.15 + $0.6
 
     // Fallback models: $1.5/$7.5 per M
-    const costFallback = (runner as any).calculateEstimatedCost(
+    const costFallback = runnerInternals.calculateEstimatedCost(
       'provider',
       'custom-model',
       1000000,
@@ -127,14 +153,9 @@ describe('Phase 4: Telemetry Profiling', () => {
   it('formats detailed telemetry summary with aggregated totals', () => {
     const runner = new TaskRunner({
       projectRoot: process.cwd(),
-      rdtConfig: {
-        runtime: {
-          max_edit_passes: 3,
-          rollback_on_failed_task: true,
-        },
-        providers: [],
-      } as any,
+      rdtConfig: minimalRdtConfig,
     });
+    const runnerInternals = runner as unknown as TaskRunnerInternals;
 
     const state: TaskState = {
       id: 'task_telemetry_test',
@@ -167,7 +188,7 @@ describe('Phase 4: Telemetry Profiling', () => {
       ],
     };
 
-    const result = (runner as any).buildResult(state, true);
+    const result = runnerInternals.buildResult(state, true);
     expect(result.providerSummary).toContain(
       'editor (anthropic/claude-3-5-sonnet):',
     );
@@ -326,6 +347,10 @@ describe('Phase 4: Vector Search Caching & Migration', () => {
 
     // But metadata in DB should be updated to match the scanned file
     const cached = mockDbStore.get('src/test-file.ts');
+    expect(cached).toBeDefined();
+    if (!cached) {
+      throw new Error('Expected cached metadata for src/test-file.ts');
+    }
     expect(cached.size).toBe(stat.size);
     expect(cached.mtime_ms).toBe(stat.mtimeMs);
   });

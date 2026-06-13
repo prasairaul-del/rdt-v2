@@ -41,12 +41,14 @@ export async function plannerAgent(
 
         if (task.reviewResults && task.reviewResults.length > 0) {
           const lastReview = task.reviewResults[task.reviewResults.length - 1];
-          userContent +=
-            `\n\n### PREVIOUS IMPLEMENTATION ATTEMPT FAILURE\n` +
-            `The previous implementation attempt did not pass checks. You must revise your plan to address this.\n\n` +
-            `Last Plan summary: ${task.planSummary || 'None'}\n` +
-            `Issues identified by reviewer:\n${lastReview.issues.map((i) => `- ${i}`).join('\n')}\n` +
-            `Required fixes:\n${lastReview.requiredFixes.map((f) => `- ${f}`).join('\n')}`;
+          userContent += `\n\n### PREVIOUS IMPLEMENTATION ATTEMPT FAILURE
+The previous implementation attempt did not pass checks. You must revise your plan to address this.
+
+Last Plan summary: ${task.planSummary || 'None'}
+Issues identified by reviewer:
+${lastReview.issues.map((i) => `- ${i}`).join('\n')}
+Required fixes:
+${lastReview.requiredFixes.map((f) => `- ${f}`).join('\n')}`;
         }
 
         let systemPrompt = `You are a senior software engineer planning code changes.

@@ -2,16 +2,16 @@ import { execSync, spawnSync } from 'node:child_process';
 import { loadConfig } from '../../config/load-config';
 import type { RdtConfig } from '../../config/schema';
 import {
-  buildContext,
   type TaskContext,
+  buildContext,
 } from '../../project-context/context-builder';
 import { detectProject } from '../../project-context/detect-project';
 import { loadInstructions } from '../../project-context/load-instructions';
-import { scanRepo } from '../../project-context/repo-scanner';
 import type { RepoMap } from '../../project-context/repo-map';
+import { scanRepo } from '../../project-context/repo-scanner';
 import type { ProviderRouter } from '../../router/provider-router';
 import { Sandbox } from '../../tools/sandbox';
-import { TaskLogger } from '../logger';
+import type { TaskLogger } from '../logger';
 import type { TaskBaselines, TaskState } from '../task-state';
 
 /**
@@ -241,7 +241,7 @@ export class ExecutionContext {
    * Initialize and run vector search indexing.
    */
   async indexForSearch(): Promise<number> {
-    if (!this._repoMap) await this.scan();
+    const repoMap = this._repoMap ?? (await this.scan());
 
     try {
       const { VectorSearch } = await import(
@@ -251,7 +251,7 @@ export class ExecutionContext {
       await vectorSearch.init();
 
       this.logger.info('Indexing repository for vector search...');
-      const indexedCount = await vectorSearch.indexRepository(this._repoMap!);
+      const indexedCount = await vectorSearch.indexRepository(repoMap);
       this.logger.info(
         `Vector search indexing complete. Indexed/updated ${indexedCount} files.`,
       );

@@ -91,8 +91,12 @@ export const moveFileTool: Tool<MoveFileInput, MoveFileOutput> = {
 
       try {
         renameSync(absSource, absDest);
-      } catch (renameErr: any) {
-        if (renameErr && renameErr.code === 'EXDEV') {
+      } catch (renameErr) {
+        if (
+          renameErr instanceof Error &&
+          'code' in renameErr &&
+          renameErr.code === 'EXDEV'
+        ) {
           cpSync(absSource, absDest, { recursive: true });
           rmSync(absSource, { recursive: true, force: true });
         } else {

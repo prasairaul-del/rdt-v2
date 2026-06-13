@@ -1,5 +1,8 @@
 import { type EditorAgentConfig, editorAgent } from './editor-agent';
-import { filePickerAgent } from './file-picker-agent';
+import {
+  type FilePickerAgentConfig,
+  filePickerAgent,
+} from './file-picker-agent';
 import { type PlannerAgentConfig, plannerAgent } from './planner-agent';
 import { type ReviewerAgentConfig, reviewerAgent } from './reviewer-agent';
 import type {
@@ -33,7 +36,7 @@ export class AgentRegistry {
       description:
         'Selects relevant files for a task based on the request and repo structure',
       execute: async (input: AgentInput, config?: unknown) => {
-        const filePickerConfig = config as any;
+        const filePickerConfig = config as FilePickerAgentConfig | undefined;
         return filePickerAgent(input, filePickerConfig);
       },
     });

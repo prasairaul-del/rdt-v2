@@ -1,14 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import { agentRegistry } from '../../src/agents/agent-registry';
+import { type AgentName, agentRegistry } from '../../src/agents/agent-registry';
 import { editorAgent } from '../../src/agents/editor-agent';
 import { filePickerAgent } from '../../src/agents/file-picker-agent';
-import { plannerAgent } from '../../src/agents/planner-agent';
+import {
+  type PlannerAgentConfig,
+  plannerAgent,
+} from '../../src/agents/planner-agent';
 import { reviewerAgent } from '../../src/agents/reviewer-agent';
 import { createTaskState } from '../../src/core/task-state';
 import { buildContext } from '../../src/project-context/context-builder';
 import { detectProject } from '../../src/project-context/detect-project';
 import { loadInstructions } from '../../src/project-context/load-instructions';
 import { scanRepo } from '../../src/project-context/repo-scanner';
+import type { ProviderRouter } from '../../src/router/provider-router';
 
 // The reviewer agent calls testRunnerTool which would recursively run `bun run test`.
 // Mock it so reviewer tests are fast and don't recurse.
@@ -102,7 +106,7 @@ describe('AgentRegistry', () => {
   });
 
   it('should return undefined for unknown agent', () => {
-    const agent = agentRegistry.get('unknown' as any);
+    const agent = agentRegistry.get('unknown' as unknown as AgentName);
     expect(agent).toBeUndefined();
   });
 
@@ -186,8 +190,8 @@ describe('filePickerAgent', () => {
 // ── Planner Agent ────────────────────────────────────────────────
 
 describe('plannerAgent', () => {
-  const minimalConfig = {
-    router: {} as any,
+  const minimalConfig: PlannerAgentConfig = {
+    router: {} as ProviderRouter,
     policyName: 'test_policy',
     tools: [],
   };
@@ -257,7 +261,7 @@ describe('plannerAgent', () => {
 
   it('should handle error gracefully when config is missing', async () => {
     const input = createMinimalInput('test');
-    const result = await plannerAgent(input, {} as any);
+    const result = await plannerAgent(input, {} as PlannerAgentConfig);
 
     // With an empty config, it should still work (uses defaults)
     expect(result.success).toBe(true);

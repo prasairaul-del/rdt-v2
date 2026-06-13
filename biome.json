@@ -5,6 +5,14 @@
     "indentStyle": "space",
     "indentWidth": 2
   },
+  "files": {
+    "ignore": [
+      ".agent-backups/**",
+      "dist/**",
+      "node_modules/**",
+      "tests/fixtures/**"
+    ]
+  },
   "linter": {
     "enabled": true,
     "rules": {

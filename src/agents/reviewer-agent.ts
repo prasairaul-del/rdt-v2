@@ -1,3 +1,4 @@
+import type { TaskLogger } from '../core/logger';
 import type { CompletionMessage } from '../providers/types';
 import type { ProviderRouter } from '../router/provider-router';
 import { gitDiffTool } from '../tools/git-diff';
@@ -11,7 +12,7 @@ export interface ReviewerAgentConfig {
   policyName: string;
   /** Explicit working directory for tool operations (avoids process.cwd() dependency) */
   cwd?: string;
-  logger?: any;
+  logger?: TaskLogger;
 }
 
 /**

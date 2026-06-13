@@ -1,4 +1,5 @@
 import {
+  type Stats,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -156,7 +157,7 @@ export class Sandbox {
       }
       for (const item of items) {
         const fullPath = join(dir, item);
-        let stat;
+        let stat: Stats;
         try {
           stat = lstatSync(fullPath);
         } catch {

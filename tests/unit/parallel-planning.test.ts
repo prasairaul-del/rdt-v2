@@ -8,9 +8,13 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentRegistry } from '../../src/agents/agent-registry';
+import {
+  type AgentDefinition,
+  agentRegistry,
+} from '../../src/agents/agent-registry';
+import type { AgentInput, EditResult } from '../../src/agents/types';
 import { TaskRunner } from '../../src/core/task-runner';
-import { Sandbox } from '../../src/tools/sandbox';
+import type { TaskState } from '../../src/core/task-state';
 import { testRunnerTool } from '../../src/tools/test-runner';
 
 // Mock bun:sqlite
@@ -95,7 +99,9 @@ describe('Parallel Path Planning Trials', () => {
 
   it('should select Trial 2 when Trial 2 tests pass and Trial 1 fails', async () => {
     // 1. Mock Editor Agent execute to simulate different results for Trial 1 vs Trial 2
-    const editorMock = {
+    const editorMock: AgentDefinition<AgentInput, EditResult> = {
+      name: 'editor',
+      description: 'Mock editor',
       execute: vi
         .fn()
         .mockImplementationOnce(async () => {
@@ -109,6 +115,9 @@ describe('Parallel Path Planning Trials', () => {
               needsReview: true,
               summary: 'edit1',
             },
+            modelUsed: 'mock',
+            providerUsed: 'mock',
+            toolCalls: [],
           };
         }) // Trial 1
         .mockImplementationOnce(async () => {
@@ -122,13 +131,18 @@ describe('Parallel Path Planning Trials', () => {
               needsReview: true,
               summary: 'edit2',
             },
+            modelUsed: 'mock',
+            providerUsed: 'mock',
+            toolCalls: [],
           };
         }), // Trial 2
     };
 
     vi.spyOn(agentRegistry, 'get').mockImplementation((name) => {
-      if (name === 'editor') return editorMock as any;
-      return null;
+      if (name === 'editor') {
+        return editorMock as unknown as AgentDefinition<unknown, unknown>;
+      }
+      return undefined;
     });
 
     // 2. Mock testRunnerTool to return FAILED for Trial 1 and PASSED for Trial 2
@@ -155,16 +169,20 @@ describe('Parallel Path Planning Trials', () => {
       }); // Trial 2 Test passes
 
     // 3. Setup mock state
-    const state: any = {
+    const state: TaskState = {
       id: 'task-parallel',
       request: 'fix',
       status: 'editing',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       errors: [],
       changedFiles: [],
       maxEditPasses: 1,
       editPass: 0,
-      baselines: { rdtTouchedFiles: [] },
-      plan: { steps: [] },
+      rollbackOnFailed: true,
+      baselines: { dirtyFiles: [], rdtTouchedFiles: [] },
+      providerUsage: [],
+      plan: { summary: 'test', steps: [], testPlan: [], risks: [] },
     };
 
     // Mock Sandbox to capture creations
@@ -194,7 +212,7 @@ describe('Parallel Path Planning Trials', () => {
 
     try {
       // Execute editFiles
-      await (runner as any).editFiles(state);
+      await runner.editFiles(state);
 
       // Verify that content from Trial 2 sandbox was copied to main sandbox Cwd
       const mainFile = join(mainSandboxPath, 'src', 'file.ts');

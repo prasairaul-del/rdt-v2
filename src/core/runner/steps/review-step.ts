@@ -1,7 +1,8 @@
 import { agentRegistry } from '../../../agents/agent-registry';
 import type { ReviewerAgentConfig } from '../../../agents/reviewer-agent';
-import { gitDiffTool } from '../../../tools/git-diff';
+import type { AgentInput, ReviewResult } from '../../../agents/types';
 import type { ProviderRouter } from '../../../router/provider-router';
+import { gitDiffTool } from '../../../tools/git-diff';
 import type { StepContext } from '../types';
 
 /**
@@ -24,7 +25,7 @@ export async function reviewStep(context: StepContext): Promise<boolean> {
     state.diff = diffResult.data.diff;
   }
 
-  const reviewer = agentRegistry.get('reviewer');
+  const reviewer = agentRegistry.get<AgentInput, ReviewResult>('reviewer');
   if (!reviewer) {
     logger.warn('Reviewer agent not found — auto-approving');
     return true;
@@ -41,7 +42,7 @@ export async function reviewStep(context: StepContext): Promise<boolean> {
   const result = await reviewer.execute(
     {
       task: state,
-      plan: state.plan as any,
+      plan: state.plan,
       project: agentContext,
       diff: state.diff || '',
     },
@@ -49,7 +50,7 @@ export async function reviewStep(context: StepContext): Promise<boolean> {
   );
 
   if (result.success && result.result) {
-    const review = result.result as any;
+    const review = result.result as ReviewResult;
 
     if (!state.reviewResults) {
       state.reviewResults = [];

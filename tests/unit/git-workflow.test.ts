@@ -4,12 +4,12 @@ import { TaskRunner } from '../../src/core/task-runner';
 
 import { baselineStep } from '../../src/core/runner/steps/baseline-step';
 import { contextStep } from '../../src/core/runner/steps/context-step';
-import { scanStep } from '../../src/core/runner/steps/scan-step';
+import { editStep } from '../../src/core/runner/steps/edit-step';
+import { finalizeStep } from '../../src/core/runner/steps/finalize-step';
 import { pickStep } from '../../src/core/runner/steps/pick-step';
 import { planStep } from '../../src/core/runner/steps/plan-step';
-import { editStep } from '../../src/core/runner/steps/edit-step';
 import { reviewStep } from '../../src/core/runner/steps/review-step';
-import { finalizeStep } from '../../src/core/runner/steps/finalize-step';
+import { scanStep } from '../../src/core/runner/steps/scan-step';
 
 // Mock node:child_process
 vi.mock('node:child_process', () => {

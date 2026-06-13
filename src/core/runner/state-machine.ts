@@ -1,5 +1,5 @@
 import { globalEventBus } from '../events';
-import { TaskLogger } from '../logger';
+import type { TaskLogger } from '../logger';
 import { type TaskState, type TaskStatus, addTaskError } from '../task-state';
 
 /** Transitions that are valid from each state. */
@@ -62,8 +62,8 @@ export class StateMachine {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const code =
-        err instanceof Error && 'code' in err
-          ? (err as any).code
+        err instanceof Error && 'code' in err && typeof err.code === 'string'
+          ? err.code
           : 'STEP_ERROR';
 
       addTaskError(this.state, message, code, 'fatal');

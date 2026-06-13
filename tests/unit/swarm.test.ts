@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { editorAgent } from '../../src/agents/editor-agent';
 import type { AgentInput } from '../../src/agents/types';
 import type { RdtConfig } from '../../src/config/schema';
-import type { TaskState } from '../../src/core/task-state';
 import type { ReviewResult } from '../../src/core/runner/types';
+import type { TaskState } from '../../src/core/task-state';
 import { MockProvider } from '../../src/providers/mock-provider';
+import type { CompletionMessage } from '../../src/providers/types';
 import { ProviderRouter } from '../../src/router/provider-router';
 
 // Mock bun:sqlite since vitest runs in Node.js
@@ -121,7 +122,7 @@ describe('Swarm Consensus — Reviewer to Editor Feedback Loop', () => {
         },
       ],
     });
-    let capturedMessages: any[] = [];
+    let capturedMessages: CompletionMessage[] = [];
     mockProvider.complete = async (req) => {
       capturedMessages = req.messages;
       return {
@@ -147,7 +148,7 @@ describe('Swarm Consensus — Reviewer to Editor Feedback Loop', () => {
     };
 
     const input: AgentInput = {
-      task: taskState as any,
+      task: taskState as unknown as AgentInput['task'],
       plan: {
         summary: 'my plan',
         steps: [
@@ -193,6 +194,9 @@ describe('Swarm Consensus — Reviewer to Editor Feedback Loop', () => {
 
     const userMessage = capturedMessages.find((m) => m.role === 'user');
     expect(userMessage).toBeDefined();
+    if (!userMessage) {
+      throw new Error('Expected editor prompt user message');
+    }
     expect(userMessage.content).not.toContain(
       '### FEEDBACK FROM PREVIOUS REVIEW PASS',
     );
@@ -215,7 +219,7 @@ describe('Swarm Consensus — Reviewer to Editor Feedback Loop', () => {
         },
       ],
     });
-    let capturedMessages: any[] = [];
+    let capturedMessages: CompletionMessage[] = [];
     mockProvider.complete = async (req) => {
       capturedMessages = req.messages;
       return {
@@ -265,7 +269,7 @@ describe('Swarm Consensus — Reviewer to Editor Feedback Loop', () => {
     };
 
     const input: AgentInput = {
-      task: taskState as any,
+      task: taskState as unknown as AgentInput['task'],
       plan: {
         summary: 'my plan',
         steps: [
@@ -311,6 +315,9 @@ describe('Swarm Consensus — Reviewer to Editor Feedback Loop', () => {
 
     const userMessage = capturedMessages.find((m) => m.role === 'user');
     expect(userMessage).toBeDefined();
+    if (!userMessage) {
+      throw new Error('Expected editor prompt user message');
+    }
 
     // Check that feedback structure is injected
     expect(userMessage.content).toContain(

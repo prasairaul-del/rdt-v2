@@ -55,8 +55,8 @@ export function filterCooldown<T extends { cooldownUntil?: string }>(
 
   for (const model of models) {
     const info = checkCooldown(model);
-    if (info.inCooldown) {
-      cooling.push({ model, remainingMs: info.remainingMs! });
+    if (info.inCooldown && typeof info.remainingMs === 'number') {
+      cooling.push({ model, remainingMs: info.remainingMs });
     } else {
       available.push(model);
     }

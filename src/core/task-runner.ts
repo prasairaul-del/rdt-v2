@@ -220,7 +220,7 @@ export class TaskRunner {
     if (!state.errors.some((e) => e.message === message)) {
       const code =
         err instanceof Error && 'code' in err
-          ? (err as any).code
+          ? String(err.code)
           : 'TASK_FAILURE';
       stateMachine.addError(message, code, 'fatal');
     }
@@ -400,10 +400,9 @@ export class TaskRunner {
   Cost: $${cost.toFixed(6)}${p.error ? `\n  Error: ${p.error}` : ''}`;
       });
 
-      providerSummary =
-        lines.join('\n\n') +
-        '\n\n' +
-        `Aggregated Totals:
+      providerSummary = `${lines.join('\n\n')}
+
+Aggregated Totals:
   Total Latency: ${totalLatency}ms
   Total Tokens: ${totalPromptTokens + totalCompletionTokens} (${totalPromptTokens} prompt, ${totalCompletionTokens} completion)
   Total Estimated Cost: $${totalCost.toFixed(6)}`;

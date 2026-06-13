@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { defaultLogger } from '../core/logger';
-import { errorResult, successResult, type ToolResult } from '../core/result';
+import { type TaskLogger, defaultLogger } from '../core/logger';
+import { type ToolResult, errorResult, successResult } from '../core/result';
 import { wrapCommand } from './process-isolation';
 import type { Tool } from './types';
 
@@ -10,7 +10,7 @@ export interface RunShellInput {
   allowBlocked?: boolean;
   /** Override working directory (avoids process.cwd() dependency) */
   cwd?: string;
-  logger?: any;
+  logger?: TaskLogger;
 }
 
 export interface RunShellOutput {

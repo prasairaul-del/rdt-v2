@@ -1,12 +1,13 @@
-import { existsSync, mkdirSync, copyFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { agentRegistry } from '../../../agents/agent-registry';
 import type { EditorAgentConfig } from '../../../agents/editor-agent';
-import { addTaskError } from '../../task-state';
+import type { AgentInput, EditResult } from '../../../agents/types';
 import type { ProviderRouter } from '../../../router/provider-router';
-import type { StepContext } from '../types';
 import { Sandbox } from '../../../tools/sandbox';
 import { testRunnerTool } from '../../../tools/test-runner';
+import { addTaskError } from '../../task-state';
+import type { StepContext } from '../types';
 
 /**
  * Step: Editing files to implement the plan.
@@ -21,13 +22,13 @@ export async function editStep(context: StepContext): Promise<void> {
 
   const agentContext = executionContext.buildAgentContext(state.request);
 
-  const editor = agentRegistry.get('editor');
+  const editor = agentRegistry.get<AgentInput, EditResult>('editor');
   if (!editor) {
     addTaskError(state, 'Editor agent not found', 'AGENT_NOT_FOUND', 'fatal');
     return;
   }
 
-  const projectRoot = executionContext.config?.projectRoot ?? sandboxCwd;
+  const projectRoot = config.projectRoot ?? sandboxCwd;
 
   logger.info('Starting parallel edit trials to evaluate best fix...');
 
@@ -39,18 +40,23 @@ export async function editStep(context: StepContext): Promise<void> {
   };
 
   const originalCwd = process.cwd();
+  const plan = state.plan;
+  if (!plan) {
+    addTaskError(state, 'Edit step requires a plan', 'PLAN_MISSING', 'fatal');
+    return;
+  }
 
   // --- TRIAL 1 ---
   const sandbox1 = new Sandbox(projectRoot, `${state.id}-trial-1`);
   let trial1Passed = false;
-  let trial1Result: any = null;
+  let trial1Result: EditResult | null = null;
 
   try {
     await sandbox1.init();
     process.chdir(sandbox1.sandboxPath);
     logger.info(`Running Edit Trial 1 in: ${sandbox1.sandboxPath}`);
     const res = await editor.execute(
-      { task: state, plan: state.plan!, project: agentContext },
+      { task: state, plan, project: agentContext },
       { ...editorConfig, cwd: sandbox1.sandboxPath },
     );
     if (res.success && res.result) {
@@ -70,14 +76,14 @@ export async function editStep(context: StepContext): Promise<void> {
   // --- TRIAL 2 ---
   const sandbox2 = new Sandbox(projectRoot, `${state.id}-trial-2`);
   let trial2Passed = false;
-  let trial2Result: any = null;
+  let trial2Result: EditResult | null = null;
 
   try {
     await sandbox2.init();
     process.chdir(sandbox2.sandboxPath);
     logger.info(`Running Edit Trial 2 in: ${sandbox2.sandboxPath}`);
     const res = await editor.execute(
-      { task: state, plan: state.plan!, project: agentContext },
+      { task: state, plan, project: agentContext },
       { ...editorConfig, cwd: sandbox2.sandboxPath },
     );
     if (res.success && res.result) {
@@ -109,13 +115,8 @@ export async function editStep(context: StepContext): Promise<void> {
     logger.info('Selecting Trial 1 as primary candidate');
   }
 
-  if (selectedResult && selectedResult.changedFiles) {
-    const editResult = selectedResult as {
-      changedFiles: string[];
-      diff: string;
-      needsReview: boolean;
-      summary: string;
-    };
+  if (selectedResult?.changedFiles) {
+    const editResult = selectedResult;
     state.changedFiles = [
       ...new Set([...state.changedFiles, ...editResult.changedFiles]),
     ];

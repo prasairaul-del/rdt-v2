@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   afterAll,
@@ -9,13 +9,13 @@ import {
   it,
   vi,
 } from 'vitest';
-import { makeDirectoryTool } from '../../src/tools/make-directory';
+import { TaskLogger } from '../../src/core/logger';
+import { loadInstructions } from '../../src/project-context/load-instructions';
 import { deleteFileTool } from '../../src/tools/delete-file';
+import { makeDirectoryTool } from '../../src/tools/make-directory';
 import { moveFileTool } from '../../src/tools/move-file';
 import { runShellTool } from '../../src/tools/run-shell';
 import { testRunnerTool } from '../../src/tools/test-runner';
-import { loadInstructions } from '../../src/project-context/load-instructions';
-import { TaskLogger } from '../../src/core/logger';
 
 const TEST_DIR = resolve(process.cwd(), 'tmp-phase3');
 

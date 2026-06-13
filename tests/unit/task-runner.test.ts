@@ -5,12 +5,16 @@ import { agentRegistry } from '../../src/agents/agent-registry';
 import { TaskLogger } from '../../src/core/logger';
 import { StateMachine } from '../../src/core/runner/state-machine';
 import { TaskRunner } from '../../src/core/task-runner';
-import { addTaskError, createTaskState } from '../../src/core/task-state';
+import {
+  type TaskState,
+  type TaskStatus,
+  addTaskError,
+  createTaskState,
+} from '../../src/core/task-state';
 
-function transitionState(state: any, to: any) {
+function transitionState(state: TaskState, to: TaskStatus) {
   new StateMachine(state, new TaskLogger()).transition(to);
 }
-import type { TaskState } from '../../src/core/task-state';
 
 // Mock bun:sqlite since vitest can't resolve Bun built-in modules.
 // The TaskRunner creates a TaskLogStore which depends on bun:sqlite.
@@ -240,7 +244,7 @@ describe('transitionState', () => {
     const state = createTaskState('test');
     const path: Array<{ from: string; to: string }> = [];
 
-    const steps: string[] = [
+    const steps: TaskStatus[] = [
       'capturing_baseline',
       'loading_context',
       'scanning_repo',
@@ -254,7 +258,7 @@ describe('transitionState', () => {
 
     for (const step of steps) {
       const from = state.status;
-      transitionState(state, step as any);
+      transitionState(state, step);
       path.push({ from, to: state.status });
     }
 

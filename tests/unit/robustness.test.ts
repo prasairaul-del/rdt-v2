@@ -388,7 +388,9 @@ describe('TaskRunner Robustness & Failures', () => {
     // Confirm that openrouter-1 state store entry is marked in cooldown
     const modelState = router.stateStore.get('openrouter-1', 'free');
     expect(modelState?.cooldownUntil).toBeDefined();
-    const cooldownActive = new Date(modelState?.cooldownUntil!) > new Date();
+    const cooldownActive =
+      typeof modelState?.cooldownUntil === 'string' &&
+      new Date(modelState.cooldownUntil) > new Date();
     expect(cooldownActive).toBe(true);
   });
 });

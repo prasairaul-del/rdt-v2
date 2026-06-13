@@ -1,13 +1,9 @@
-import {
-  type ErrorSeverity,
-  type TaskStatus,
-  type TaskState,
-} from './runner/types';
+import type { ErrorSeverity, TaskState, TaskStatus } from './runner/types';
 
-export {
-  type TaskBaselines,
-  type TaskState,
-  type TaskStatus,
+export type {
+  TaskBaselines,
+  TaskState,
+  TaskStatus,
 } from './runner/types';
 
 export function createTaskState(
