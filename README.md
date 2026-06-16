@@ -45,7 +45,7 @@ rdt dashboard     # Launch the interactive Web dashboard
 
 ```bash
 bun install          # Install dependencies
-bun run test         # Run 263 tests across all suites
+bun run test         # Run 255 tests across all suites
 bun run typecheck    # Type-check the project
 bun run lint         # Lint with Biome
 bun run format       # Format with Biome
@@ -83,18 +83,22 @@ User Request → File Picker → Planner → Editor → Reviewer → Final Repor
 - **Interactive Local Dashboard Web UI** — A beautiful dark/light-mode glassmorphic interface styled with custom Vanilla CSS variables. Features a dual-mode toggle switch between "Dev Mode" (displaying real-time task nodes, cost estimators, token trackers, parsed code diffs, timelines, and decision tabs) and "Vibe Mode" (providing readiness checks, deterministic plan previews, Learn Mode explanations, power recipes, command/check transparency, action templates, API key managers, and one-click Keep/Undo controls).
 - **Task Console and Queue Control** — Allows triggering coding tasks directly from the dashboard UI, backed by background execution queues.
 - **Context File Selector** — Includes an interactive workspace file checklist to let users manually include/exclude file contexts before launching a task.
-- **User-Space Shadow Sandbox** — A lightweight, zero-install workspace sandboxing mechanism that uses NTFS junctions/symlinks to expose dependencies (like `node_modules` and `.venv`) in 0 extra bytes of storage. All edits and test runs are isolated in the sandbox, copying back only successfully approved files to the host.
+- **User-Space Shadow Sandbox** — A lightweight, zero-install workspace sandboxing mechanism that uses NTFS junctions/symlinks to expose dependencies (like `node_modules` and `.venv`) in 0 extra bytes of storage. All edits and test runs are isolated in the sandbox, copying back only successfully approved files to the host. Parallel async file copy for fast initialization.
 - **Quiet Test Logging Support** — `TaskLogger` supports an opt-in silent mode used by tests, preserving log entries and event behavior while suppressing noisy runner/tool console output.
 - **VS Code Integration** — Launches the dashboard natively inside a VS Code Simple Browser pane using the `--open-vscode` flag.
 - **Git Auto-Commits** — Configurable `git_auto_commit` setting that automatically stages and commits successful task edits to git.
 - **Local Hybrid Context Scaling** — Uses SQLite database caches for file content hashes and terms, providing dense embeddings search (OpenAI/Ollama) with a zero-cost local TF-IDF vector similarity fallback.
 - **Swarm Consensus Loop** — Editor and Reviewer cooperation loop that funnels detailed test outputs and code review issues back to the Editor.
+- **Runtime Config Caching** — Config loader uses mtime-based caching to avoid re-parsing YAML on every call.
+- **Zod Schema Validation** — Agent outputs are validated against Zod schemas to catch malformed LLM responses early.
+- **Dashboard Performance Caching** — TTL cache for filesystem reads (readiness, files) to reduce I/O overhead.
+- **SQLite Indexes** — Optimized queries with indexes on task_logs (started_at, status) and project_info (detected_at).
 
 ---
 
 ### Test Suite
 
-**263 tests passing** across 19 unit and integration suites:
+**255 tests passing** across 19 unit and integration suites:
 
 | Suite | What it covers |
 |---|---|
@@ -124,7 +128,7 @@ src/
   agents/           4 agents (file-picker, planner, editor, reviewer)
   providers/        Mock, OpenAI-compatible, OpenRouter, Ollama
   router/           Provider routing with fallback/cooldown/quotas
-  tools/            9 tools (filesystem, shell, git, test, sandbox)
+  tools/            11 tools (filesystem, shell, git, test, sandbox)
   project-context/  Repo scanner, project detector, context builder, vector search
   storage/          SQLite stores for tasks, providers, projects, vector caches
   config/           Config schema, loader, defaults

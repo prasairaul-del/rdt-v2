@@ -137,10 +137,15 @@ stateDiagram-v2
 ## 4. Key Execution Features
 
 - **User-space Sandboxing**: Executions are performed inside a shadow workspace (sandbox CWD redirection) to prevent destructive side-effects on host files.
-- **Copy-on-Write / Junctions**: Sandbox uses NTFS directory junctions and Copy-on-Write file copies for subsecond initialization.
+- **Copy-on-Write / Junctions**: Sandbox uses NTFS directory junctions and parallel async file copies for fast initialization.
 - **Provider Policy Routing**: Adapts to rate limits, cooldowns, and fallbacks transparently.
 - **Lint Scope Hygiene**: Biome is configured to ignore generated and embedded-project paths (`dist/`, `node_modules/`, `.agent-backups/`, and `tests/fixtures/`) so full-repo lint focuses on first-party code and tests.
 - **Silent Test Logging**: `TaskLogger` accepts `{ silent: true }` as an opt-in constructor option. Tests should create loggers via `tests/unit/utils/test-logger.ts` when exercising `TaskRunner`, `runShellTool`, or `testRunnerTool`, unless the test is explicitly verifying console logging behavior.
+- **Config Caching**: Config loader uses mtime-based caching to avoid re-parsing YAML on every call.
+- **Zod Schema Validation**: Agent outputs are validated against Zod schemas to catch malformed LLM responses early.
+- **Dashboard Performance Caching**: TTL cache for filesystem reads (readiness, files) to reduce I/O overhead.
+- **SQLite Indexes**: Optimized queries with indexes on task_logs (started_at, status) and project_info (detected_at).
+- **State Transition Events**: Fatal errors emit state change events through the event bus for proper observability.
 
 ### Test Logger Guidance
 

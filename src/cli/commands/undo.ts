@@ -4,22 +4,34 @@ import { resolve } from 'node:path';
 import { Command } from 'commander';
 import { TaskLogStore } from '../../storage/task-log-store';
 
+const TASK_ID_REGEX = /^[a-zA-Z0-9_\-]+$/;
+
+function sanitizeTaskId(taskId: string): string {
+  if (!TASK_ID_REGEX.test(taskId)) {
+    throw new Error(
+      `Invalid task ID "${taskId}". Only alphanumeric characters, hyphens, and underscores are allowed.`,
+    );
+  }
+  return taskId;
+}
+
 export function createUndoCommand(): Command {
   return new Command('undo')
     .description('Undo/Rollback changes made by a task')
     .argument('<taskId>', 'The ID of the task to undo (e.g. task_a1b2c3d4)')
     .action(async (taskId: string) => {
+      const sanitizedId = sanitizeTaskId(taskId);
       const projectRoot = process.cwd();
       const dbPath = resolve(projectRoot, '.rdt', 'tasks.db');
 
-      console.log(`\n  RDT v2 — Undoing Task: ${taskId}`);
+      console.log(`\n  RDT v2 — Undoing Task: ${sanitizedId}`);
       console.log(`  ${'─'.repeat(40)}`);
 
       try {
         let originalRequest = '';
         if (existsSync(dbPath)) {
           const logStore = new TaskLogStore(dbPath);
-          const log = logStore.getLog(taskId);
+          const log = logStore.getLog(sanitizedId);
           if (log) {
             originalRequest = log.request;
             console.log(`  Found task log: "${originalRequest}"`);
@@ -27,7 +39,7 @@ export function createUndoCommand(): Command {
         }
 
         // 1. Check if a feature branch exists for this task
-        const branchName = `rdt/task-${taskId}`;
+        const branchName = `rdt/task-${sanitizedId}`;
         let branchExists = false;
         try {
           const branches = execSync('git branch --list', { encoding: 'utf-8' });
@@ -74,17 +86,17 @@ export function createUndoCommand(): Command {
           console.log(`  Deleting feature branch '${branchName}'...`);
           execSync(`git branch -D ${branchName}`, { stdio: 'inherit' });
           console.log(
-            `\n  \x1b[32mSuccess: Deleted feature branch and discarded changes for task ${taskId}.\x1b[0m\n`,
+            `\n  \x1b[32mSuccess: Deleted feature branch and discarded changes for task ${sanitizedId}.\x1b[0m\n`,
           );
           return;
         }
 
         // 2. Fallback: Check if there is a commit directly in history to revert
-        console.log(`  Searching git history for task ID: ${taskId}...`);
+        console.log(`  Searching git history for task ID: ${sanitizedId}...`);
         let commitHash = '';
         try {
           commitHash = execSync(
-            `git log --grep="rdt \\[${taskId}\\]" --format="%H" -n 1`,
+            `git log --grep="rdt \\[${sanitizedId}\\]" --format="%H" -n 1`,
             { encoding: 'utf-8' },
           ).trim();
         } catch {
@@ -96,13 +108,13 @@ export function createUndoCommand(): Command {
           console.log('  Running git revert...');
           execSync(`git revert ${commitHash} --no-edit`, { stdio: 'inherit' });
           console.log(
-            `\n  \x1b[32mSuccess: Reverted commit ${commitHash.slice(0, 8)} for task ${taskId}.\x1b[0m\n`,
+            `\n  \x1b[32mSuccess: Reverted commit ${commitHash.slice(0, 8)} for task ${sanitizedId}.\x1b[0m\n`,
           );
           return;
         }
 
         console.error(
-          `\n  \x1b[31mError: No branch or commit found for task ${taskId}.\x1b[0m`,
+          `\n  \x1b[31mError: No branch or commit found for task ${sanitizedId}.\x1b[0m`,
         );
         console.error(
           '  Make sure the task ID is correct and that git changes were committed.\n',

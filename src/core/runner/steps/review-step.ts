@@ -1,7 +1,6 @@
 import { agentRegistry } from '../../../agents/agent-registry';
 import type { ReviewerAgentConfig } from '../../../agents/reviewer-agent';
 import type { AgentInput, ReviewResult } from '../../../agents/types';
-import type { ProviderRouter } from '../../../router/provider-router';
 import { gitDiffTool } from '../../../tools/git-diff';
 import type { StepContext } from '../types';
 
@@ -31,8 +30,13 @@ export async function reviewStep(context: StepContext): Promise<boolean> {
     return true;
   }
 
+  if (!router) {
+    logger.warn('Reviewer requires provider router — auto-approving');
+    return true;
+  }
+
   const reviewerConfig: ReviewerAgentConfig = {
-    router: router ?? ({} as ProviderRouter),
+    router,
     policyName:
       config.rdtConfig?.agents?.reviewer?.model_policy ?? 'smart_reasoning',
     cwd: sandboxCwd,

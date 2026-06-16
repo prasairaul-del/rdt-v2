@@ -1,4 +1,5 @@
 import type { RdtConfig } from '../../config/schema';
+import type { CompletionUsage } from '../../providers/types';
 import type { ProviderRouter } from '../../router/provider-router';
 import type { ProviderStateStore } from '../../storage/provider-state-store';
 import type { TaskLogStore } from '../../storage/task-log-store';
@@ -99,6 +100,7 @@ export interface TaskState {
     agentName: string;
     providerId: string;
     modelId: string;
+    usage?: CompletionUsage;
     promptTokens?: number;
     completionTokens?: number;
     durationMs: number;

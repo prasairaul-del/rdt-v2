@@ -1,6 +1,14 @@
 import type { TaskContext } from '../project-context/context-builder';
 import type { CompletionUsage } from '../providers/types';
 
+// ── Re-export canonical types from core ──────────────────────────
+export type { TaskStatus } from '../core/runner/types';
+export type { TaskState } from '../core/runner/types';
+export type { ReviewResult } from '../core/runner/types';
+
+// Import for local use in AgentInput
+import type { TaskState } from '../core/runner/types';
+
 // ── Agent Input / Output base types ──────────────────────────────
 
 export interface AgentInput {
@@ -31,59 +39,6 @@ export interface ToolCallRecord {
   input: Record<string, unknown>;
   output: Record<string, unknown>;
   durationMs: number;
-}
-
-// ── Task State (shared with core) ────────────────────────────────
-
-export type TaskStatus =
-  | 'created'
-  | 'capturing_baseline'
-  | 'loading_context'
-  | 'scanning_repo'
-  | 'selecting_files'
-  | 'planning'
-  | 'editing'
-  | 'reviewing'
-  | 'fixing'
-  | 'finalizing'
-  | 'done'
-  | 'failed'
-  | 'rolling_back'
-  | 'failed_clean'
-  | 'failed_dirty';
-
-export interface TaskState {
-  id: string;
-  request: string;
-  status: TaskStatus;
-  createdAt: string;
-  startedAt?: string;
-  finishedAt?: string;
-  errorMessage?: string;
-  editPass: number;
-  maxEditPasses: number;
-  baselines?: {
-    headHash?: string;
-    dirtyFiles: string[];
-    rdtTouchedFiles: string[];
-  };
-  selectedFiles?: SelectedFile[];
-  planSummary?: string;
-  plan?: Plan;
-  editResults?: EditResult[];
-  reviewResults?: ReviewResult[];
-  providerUsage: ProviderUsageEntry[];
-}
-
-export interface ProviderUsageEntry {
-  agentName: string;
-  providerId: string;
-  modelId: string;
-  usage?: CompletionUsage;
-  error?: string;
-  durationMs: number;
-  promptTokens?: number;
-  completionTokens?: number;
 }
 
 // ── File Selection ───────────────────────────────────────────────
@@ -123,18 +78,4 @@ export interface EditResult {
   summary: string;
   diff: string;
   needsReview: boolean;
-}
-
-// ── Review Result ────────────────────────────────────────────────
-
-export interface ReviewResult {
-  approved: boolean;
-  issues: string[];
-  testsRun: Array<{
-    command: string;
-    passed: boolean;
-    outputSummary: string;
-  }>;
-  requiredFixes: string[];
-  finalSummary: string;
 }

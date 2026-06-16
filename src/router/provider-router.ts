@@ -444,7 +444,9 @@ export class ProviderRouter {
           try {
             return await provider.embed(embedModel.model, text);
           } catch (err) {
-            // Try next
+            console.warn(
+              `[Router] Embedding failed with ${providerId}/${embedModel.model}: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }
@@ -460,7 +462,9 @@ export class ProviderRouter {
         try {
           return await provider.embed(defaultModel, text);
         } catch (err) {
-          // Try next
+          console.warn(
+            `[Router] Embedding failed with ${providerId}/${defaultModel}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     }

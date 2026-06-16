@@ -1,3 +1,4 @@
+import { globalEventBus } from './events';
 import type { ErrorSeverity, TaskState, TaskStatus } from './runner/types';
 
 export type {
@@ -32,6 +33,7 @@ export function createTaskState(
 
 /**
  * Add an error to the task state.
+ * For fatal errors, transitions to 'failed' and emits a state change event.
  */
 export function addTaskError(
   state: TaskState,
@@ -55,8 +57,9 @@ export function addTaskError(
     state.status !== 'failed_clean' &&
     state.status !== 'failed_dirty'
   ) {
-    // Timing and status update
+    const from = state.status;
     state.status = 'failed';
     state.finishedAt = new Date().toISOString();
+    globalEventBus.emitStateChange(state.id, from, 'failed');
   }
 }

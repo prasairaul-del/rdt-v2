@@ -321,8 +321,20 @@ export class TaskRunner {
 
     const mId = modelId.toLowerCase();
     const pId = providerId.toLowerCase();
+    const costTable = this.config.rdtConfig?.runtime.cost_table;
 
-    // Check if it's a mini model or cheap model
+    // Check custom cost table first (keyed by model ID pattern)
+    if (costTable) {
+      for (const [pattern, rates] of Object.entries(costTable)) {
+        if (mId.includes(pattern.toLowerCase())) {
+          const promptCost = (pTokens / 1_000_000) * rates.promptPerM;
+          const completionCost = (cTokens / 1_000_000) * rates.completionPerM;
+          return promptCost + completionCost;
+        }
+      }
+    }
+
+    // Fall back to hardcoded defaults based on model name heuristics
     const isMini =
       mId.includes('mini') ||
       mId.includes('haiku') ||
@@ -332,7 +344,6 @@ export class TaskRunner {
       mId.includes('llama3') ||
       mId.includes('deepseek');
 
-    // Check if it's a premium/standard model (Claude 3.5 Sonnet, GPT-4o, GPT-4, Opus, etc.)
     const isPremium =
       mId.includes('sonnet') ||
       mId.includes('gpt-4o') ||
@@ -340,8 +351,8 @@ export class TaskRunner {
       mId.includes('opus') ||
       mId.includes('pro');
 
-    let promptRatePerM = 1.5; // fallback standard rate
-    let completionRatePerM = 7.5; // fallback standard rate
+    let promptRatePerM = 1.5;
+    let completionRatePerM = 7.5;
 
     if (isMini) {
       promptRatePerM = 0.15;

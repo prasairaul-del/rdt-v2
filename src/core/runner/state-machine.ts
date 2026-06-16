@@ -1,3 +1,4 @@
+import { StateTransitionError } from '../errors';
 import { globalEventBus } from '../events';
 import type { TaskLogger } from '../logger';
 import { type TaskState, type TaskStatus, addTaskError } from '../task-state';
@@ -10,9 +11,9 @@ export const TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   scanning_repo: ['selecting_files', 'failed'],
   selecting_files: ['planning', 'failed'],
   planning: ['editing', 'failed'],
-  editing: ['reviewing', 'failed', 'done'],
+  editing: ['reviewing', 'failed'],
   reviewing: ['fixing', 'finalizing', 'failed'],
-  fixing: ['editing', 'failed', 'done'],
+  fixing: ['editing', 'failed'],
   finalizing: ['done', 'failed'],
   done: [],
   failed: ['rolling_back', 'failed_clean', 'failed_dirty'],
@@ -80,10 +81,7 @@ export class StateMachine {
 
     const allowed = TRANSITIONS[from];
     if (!allowed.includes(to)) {
-      throw new Error(
-        `Invalid state transition: ${from} -> ${to}. ` +
-          `Allowed transitions from ${from}: [${allowed.join(', ')}]`,
-      );
+      throw new StateTransitionError(from, to, allowed);
     }
 
     // Track timing
@@ -112,10 +110,7 @@ export class StateMachine {
   ): void {
     addTaskError(this.state, message, code, severity);
 
-    // Auto-transition for fatal errors handled by addTaskError
-    // But we might want to emit a state change event if it happened
     if (severity === 'fatal' && this.state.status === 'failed') {
-      // It already transitioned in addTaskError, but we might want to log it
       this.logger.error(
         `Fatal error in state ${this.state.status}: ${message}`,
       );

@@ -195,7 +195,8 @@ export class ExecutionContext {
   async initSandbox(taskId: string): Promise<string> {
     this._sandbox = new Sandbox(this.projectRoot, taskId);
     this.logger.info('Initializing isolated shadow sandbox...');
-    await this._sandbox.init();
+    // Pass pre-scanned repoMap if available to avoid redundant filesystem walk
+    await this._sandbox.init(this._repoMap);
     this.logger.info(
       `Sandbox active. Temporary workspace: ${this._sandbox.sandboxPath}`,
     );

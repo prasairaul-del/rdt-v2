@@ -1,6 +1,5 @@
 import { agentRegistry } from '../../../agents/agent-registry';
 import type { PlannerAgentConfig } from '../../../agents/planner-agent';
-import type { ProviderRouter } from '../../../router/provider-router';
 import { addTaskError } from '../../task-state';
 import type { StepContext } from '../types';
 
@@ -18,8 +17,18 @@ export async function planStep(context: StepContext): Promise<void> {
     return;
   }
 
+  if (!router) {
+    addTaskError(
+      state,
+      'Planner step requires a provider router',
+      'MISSING_ROUTER',
+      'fatal',
+    );
+    return;
+  }
+
   const plannerConfig: PlannerAgentConfig = {
-    router: router ?? ({} as ProviderRouter),
+    router,
     policyName:
       config.rdtConfig?.agents?.planner?.model_policy ?? 'smart_reasoning',
     tools: [],

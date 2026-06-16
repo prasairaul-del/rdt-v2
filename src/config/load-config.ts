@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { dump, load } from 'js-yaml';
 import { createDefaultConfig } from './defaults';
@@ -10,6 +10,14 @@ export interface ConfigResult {
   loaded: boolean;
 }
 
+interface CacheEntry {
+  result: ConfigResult;
+  mtimeMs: number;
+}
+
+const configCache = new Map<string, CacheEntry>();
+const DEFAULT_CONFIG = createDefaultConfig();
+
 export function resolveConfigPath(projectRoot: string): string {
   return resolve(projectRoot, '.rdt', 'config.yaml');
 }
@@ -19,10 +27,17 @@ export function loadConfig(projectRoot: string): ConfigResult {
 
   if (!existsSync(configPath)) {
     return {
-      config: createDefaultConfig(),
+      config: DEFAULT_CONFIG,
       path: configPath,
       loaded: false,
     };
+  }
+
+  // Check cache with mtime invalidation
+  const stat = statSync(configPath);
+  const cached = configCache.get(configPath);
+  if (cached && cached.mtimeMs === stat.mtimeMs) {
+    return cached.result;
   }
 
   try {
@@ -30,14 +45,16 @@ export function loadConfig(projectRoot: string): ConfigResult {
     const parsed = load(raw) as RdtConfig;
 
     // Merge loaded config with defaults to fill missing fields
-    const defaults = createDefaultConfig();
-    const merged = mergeConfig(defaults, parsed);
+    const merged = mergeConfig(DEFAULT_CONFIG, parsed);
 
-    return {
+    const result: ConfigResult = {
       config: merged,
       path: configPath,
       loaded: true,
     };
+
+    configCache.set(configPath, { result, mtimeMs: stat.mtimeMs });
+    return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to load config at ${configPath}: ${message}`);
@@ -53,6 +70,8 @@ export function writeConfig(projectRoot: string, config: RdtConfig): void {
     sortKeys: false,
   });
   writeFileSync(configPath, yaml, 'utf-8');
+  // Invalidate cache after write
+  configCache.delete(configPath);
 }
 
 function mergeConfig(

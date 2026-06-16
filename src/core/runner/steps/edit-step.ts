@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path';
 import { agentRegistry } from '../../../agents/agent-registry';
 import type { EditorAgentConfig } from '../../../agents/editor-agent';
 import type { AgentInput, EditResult } from '../../../agents/types';
-import type { ProviderRouter } from '../../../router/provider-router';
 import { Sandbox } from '../../../tools/sandbox';
 import { testRunnerTool } from '../../../tools/test-runner';
 import { addTaskError } from '../../task-state';
@@ -32,8 +31,18 @@ export async function editStep(context: StepContext): Promise<void> {
 
   logger.info('Starting parallel edit trials to evaluate best fix...');
 
+  if (!router) {
+    addTaskError(
+      state,
+      'Editor step requires a provider router',
+      'MISSING_ROUTER',
+      'fatal',
+    );
+    return;
+  }
+
   const editorConfig: EditorAgentConfig = {
-    router: router ?? ({} as ProviderRouter),
+    router,
     policyName: config.rdtConfig?.agents?.editor?.model_policy ?? 'code_strong',
     tools: [],
     cwd: sandboxCwd,

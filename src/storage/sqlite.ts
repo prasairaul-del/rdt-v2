@@ -13,6 +13,7 @@ export class SqliteStore {
     this.db = new Database(dbPath);
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.db.exec('PRAGMA busy_timeout = 5000;');
+    this.db.exec('PRAGMA synchronous = NORMAL;');
     this.initSchema();
   }
 

@@ -21,6 +21,9 @@ export class ProjectStore extends SqliteStore {
         detected_at TEXT NOT NULL
       )
     `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_project_info_detected_at ON project_info(detected_at DESC)
+    `);
   }
 
   save(info: ProjectRecord): void {

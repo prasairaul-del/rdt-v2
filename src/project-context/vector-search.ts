@@ -203,7 +203,8 @@ export class VectorSearch {
       let content: string;
       try {
         content = readFileSync(fullPath, 'utf-8');
-      } catch {
+      } catch (err) {
+        console.warn(`[VectorSearch] Skipping unreadable file: ${fullPath}`);
         continue;
       }
 

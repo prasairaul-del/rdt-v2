@@ -1,6 +1,7 @@
 import type { CompletionMessage } from '../providers/types';
 import type { ProviderRouter } from '../router/provider-router';
 import type { Tool } from '../tools/types';
+import { PlanSchema } from './schemas';
 import type { AgentInput, AgentOutput, Plan, SelectedFile } from './types';
 
 export interface PlannerAgentConfig {
@@ -107,28 +108,23 @@ Keep steps concrete and actionable.`;
           const jsonMatch = content.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             try {
-              const parsed = JSON.parse(jsonMatch[0]) as {
-                summary?: string;
-                steps?: Array<{
-                  description: string;
-                  targetFiles?: string[];
-                  risk?: string;
-                }>;
-                testPlan?: string[];
-                risks?: string[];
-              };
-              if (parsed.steps && parsed.steps.length > 0) {
+              const raw = JSON.parse(jsonMatch[0]);
+              const validation = PlanSchema.safeParse(raw);
+              if (validation.success && validation.data.steps.length > 0) {
                 const plan: Plan = {
                   summary:
-                    parsed.summary ?? `Plan: ${parsed.steps.length} step(s)`,
-                  steps: parsed.steps.map((s, i) => ({
+                    validation.data.summary ??
+                    `Plan: ${validation.data.steps.length} step(s)`,
+                  steps: validation.data.steps.map((s, i) => ({
                     id: `step_${i + 1}`,
                     description: s.description,
                     targetFiles: s.targetFiles ?? [],
-                    risk: (s.risk as 'low' | 'medium' | 'high') ?? 'medium',
+                    risk: s.risk ?? 'medium',
                   })),
-                  testPlan: parsed.testPlan ?? ['Run tests to verify changes'],
-                  risks: parsed.risks ?? [],
+                  testPlan: validation.data.testPlan ?? [
+                    'Run tests to verify changes',
+                  ],
+                  risks: validation.data.risks ?? [],
                 };
 
                 return {

@@ -1,4 +1,11 @@
-import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,9 +38,16 @@ export function wrapCommand(command: string, sandboxPath: string): string {
 `;
     try {
       writeFileSync(profilePath, profileContent.trim(), 'utf-8');
-      // Wrap command in a shell that deletes the profile file after the command exits
+      // Write command to a temp script file to avoid shell injection via single-quote escaping
+      const scriptDir = mkdtempSync(join(tmpdir(), 'rdt-cmd-'));
+      const scriptPath = join(scriptDir, 'run.sh');
+      writeFileSync(
+        scriptPath,
+        `#!/bin/bash\n${command}\n__exit=$?\nrm -f "${profilePath}"\nrm -rf "${scriptDir}"\nexit $__exit`,
+        'utf-8',
+      );
       const escapedProfile = profilePath.replace(/"/g, '\\"');
-      return `sandbox-exec -f "${escapedProfile}" sh -c '${command}; __exit=$?; rm -f "${escapedProfile}"; exit $__exit'`;
+      return `sandbox-exec -f "${escapedProfile}" bash "${scriptPath}"`;
     } catch {
       return command; // Fallback
     }
@@ -42,17 +56,21 @@ export function wrapCommand(command: string, sandboxPath: string): string {
   // Windows Process Sandboxing (native Low Integrity Level / Directory restriction)
   if (process.platform === 'win32') {
     const escapedPath = sandboxPath.replace(/'/g, "''").toLowerCase();
+    // Write command to a temp script file to avoid PowerShell injection via interpolation
+    const scriptDir = mkdtempSync(join(tmpdir(), 'rdt-cmd-'));
+    const scriptPath = join(scriptDir, 'run.ps1');
     const psScript = `
-      $origCwd = Get-Location;
-      if (-not $origCwd.Path.ToLower().StartsWith('${escapedPath}')) {
-        Write-Error 'Access Denied: Attempted execution outside sandbox boundary';
-        exit 1;
-      }
-      ${command}
-    `;
-    const buffer = Buffer.from(psScript, 'utf16le');
-    const base64 = buffer.toString('base64');
-    return `powershell -NoProfile -EncodedCommand ${base64}`;
+$ErrorActionPreference = 'Stop'
+$origCwd = Get-Location
+if (-not $origCwd.Path.ToLower().StartsWith('${escapedPath}')) {
+  Write-Error 'Access Denied: Attempted execution outside sandbox boundary'
+  exit 1
+}
+${command}
+Remove-Item -Recurse -Force '${scriptDir}' -ErrorAction SilentlyContinue
+`;
+    writeFileSync(scriptPath, psScript, 'utf-8');
+    return `powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File "${scriptPath}"`;
   }
 
   // Linux / other platform fallback
@@ -60,7 +78,7 @@ export function wrapCommand(command: string, sandboxPath: string): string {
 }
 
 /**
- * Clean up any leftover sandbox profile files for a given sandbox path.
+ * Clean up any leftover sandbox profile files and script directories for a given sandbox path.
  * Call this from Sandbox.destroy() as a belt-and-suspenders cleanup.
  */
 export function cleanupIsolationArtifacts(sandboxPath: string): void {
@@ -74,5 +92,20 @@ export function cleanupIsolationArtifacts(sandboxPath: string): void {
         /* best effort */
       }
     }
+  }
+  // Clean up any leftover script directories (best effort)
+  try {
+    const tmpContents = readdirSync(tmpdir());
+    for (const item of tmpContents) {
+      if (item.startsWith('rdt-cmd-') || item.startsWith('rdt-mac-sandbox-')) {
+        try {
+          rmSync(join(tmpdir(), item), { recursive: true, force: true });
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+  } catch {
+    /* best effort */
   }
 }

@@ -9,6 +9,34 @@ import { TaskLogStore } from '../../storage/task-log-store';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Simple TTL cache for filesystem reads
+class TtlCache<T> {
+  private cache = new Map<string, { value: T; expiresAt: number }>();
+
+  constructor(private ttlMs: number) {}
+
+  get(key: string): T | undefined {
+    const entry = this.cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return undefined;
+    }
+    return entry.value;
+  }
+
+  set(key: string, value: T): void {
+    this.cache.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+  }
+
+  invalidate(key: string): void {
+    this.cache.delete(key);
+  }
+}
+
+const readinessCache = new TtlCache<ReadinessPayload>(5000);
+const filesCache = new TtlCache<string[]>(5000);
+
 type ReadinessLevel = 'ready' | 'partial' | 'needs_setup';
 
 /**
@@ -87,6 +115,10 @@ function scriptCommand(
 }
 
 function getReadiness(projectRoot: string): ReadinessPayload {
+  const cacheKey = `readiness:${projectRoot}`;
+  const cached = readinessCache.get(cacheKey);
+  if (cached) return cached;
+
   let pkg: {
     name?: string;
     packageManager?: string;
@@ -141,7 +173,7 @@ function getReadiness(projectRoot: string): ReadinessPayload {
     level = 'partial';
   }
 
-  return {
+  const result: ReadinessPayload = {
     projectName,
     packageManager,
     scripts: readinessScripts,
@@ -149,9 +181,14 @@ function getReadiness(projectRoot: string): ReadinessPayload {
     rules,
     level,
   };
+
+  readinessCache.set(cacheKey, result);
+  return result;
 }
 
-export function createDashboardCommand(logger: DashboardLogger = console): Command {
+export function createDashboardCommand(
+  logger: DashboardLogger = console,
+): Command {
   return new Command('dashboard')
     .description('Start the local dashboard Web UI server')
     .option(
@@ -166,6 +203,10 @@ export function createDashboardCommand(logger: DashboardLogger = console): Comma
       const dbPath = resolve(projectRoot, '.rdt', 'tasks.db');
 
       const logStore = new TaskLogStore(dbPath);
+      const { ProviderStateStore } = await import(
+        '../../storage/provider-state-store'
+      );
+      const sharedStateStore = new ProviderStateStore();
       const configResult = loadConfig(projectRoot);
 
       logger.log(
@@ -184,10 +225,7 @@ export function createDashboardCommand(logger: DashboardLogger = console): Comma
             `[rdt-dashboard] Triggered VS Code command: simpleBrowser.show http://localhost:${port}\n`,
           );
         } catch (err) {
-          logger.warn(
-            '[rdt-dashboard] Failed to launch VS Code command:',
-            err,
-          );
+          logger.warn('[rdt-dashboard] Failed to launch VS Code command:', err);
         }
       }
 
@@ -599,11 +637,7 @@ export function createDashboardCommand(logger: DashboardLogger = console): Comma
           // Fix #7 — API: Get Live Provider Health (from provider state store)
           if (url.pathname === '/api/providers' && req.method === 'GET') {
             try {
-              const { ProviderStateStore } = await import(
-                '../../storage/provider-state-store'
-              );
-              const stateStore = new ProviderStateStore();
-              const allModels = stateStore.getAll();
+              const allModels = sharedStateStore.getAll();
               const providersHealth = allModels.map((m) => ({
                 providerId: m.providerId,
                 modelId: m.modelId,
@@ -636,13 +670,18 @@ export function createDashboardCommand(logger: DashboardLogger = console): Comma
           // API: Get Workspace Files
           if (url.pathname === '/api/files' && req.method === 'GET') {
             try {
-              const { scanRepo } = await import(
-                '../../project-context/repo-scanner'
-              );
-              const repoMap = scanRepo(projectRoot);
-              const files = repoMap.entries
-                .filter((e) => e.type === 'file')
-                .map((e) => e.path);
+              const cacheKey = `files:${projectRoot}`;
+              let files = filesCache.get(cacheKey);
+              if (!files) {
+                const { scanRepo } = await import(
+                  '../../project-context/repo-scanner'
+                );
+                const repoMap = scanRepo(projectRoot);
+                files = repoMap.entries
+                  .filter((e) => e.type === 'file')
+                  .map((e) => e.path);
+                filesCache.set(cacheKey, files);
+              }
               return new Response(JSON.stringify(files), {
                 headers: { 'Content-Type': 'application/json', ...corsHeaders },
               });

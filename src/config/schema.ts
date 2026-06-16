@@ -26,6 +26,7 @@ export interface RuntimeConfig {
   preserve_user_changes: boolean;
   git_auto_commit?: boolean;
   git_feature_branch?: boolean;
+  cost_table?: Record<string, { promptPerM: number; completionPerM: number }>;
 }
 
 export interface ContextBudgetConfig {

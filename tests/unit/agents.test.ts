@@ -14,6 +14,28 @@ import { loadInstructions } from '../../src/project-context/load-instructions';
 import { scanRepo } from '../../src/project-context/repo-scanner';
 import type { ProviderRouter } from '../../src/router/provider-router';
 
+// Mock router for tests that need a router but don't actually call LLM
+const mockRouter = {
+  route: async () => ({
+    success: false,
+    error: {
+      message: 'Mock router - no providers',
+      attempts: [],
+      exhausted: [],
+      providerSnapshot: '',
+    },
+    attempts: [],
+  }),
+  embed: async () => [],
+  registerProvider: () => {},
+  initFromConfig: () => {},
+  stateStore: {
+    getAll: () => [],
+    get: () => null,
+    snapshot: () => ({ capturedAt: '' }),
+  },
+} as unknown as ProviderRouter;
+
 // The reviewer agent calls testRunnerTool which would recursively run `bun run test`.
 // Mock it so reviewer tests are fast and don't recurse.
 vi.mock('../../src/tools/git-diff', () => ({
@@ -191,7 +213,7 @@ describe('filePickerAgent', () => {
 
 describe('plannerAgent', () => {
   const minimalConfig: PlannerAgentConfig = {
-    router: {} as ProviderRouter,
+    router: mockRouter,
     policyName: 'test_policy',
     tools: [],
   };

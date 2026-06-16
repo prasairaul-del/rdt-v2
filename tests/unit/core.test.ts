@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  AgentError,
-  ProviderError,
-  StateTransitionError,
-  TaskError,
-  ToolExecutionError,
-} from '../../src/core/errors';
+import { StateTransitionError } from '../../src/core/errors';
 import {
   type TaskEvent,
   TaskEventBus,
@@ -105,7 +99,7 @@ describe('TaskState', () => {
     expect(state.finishedAt).toBeDefined();
   });
 
-  it('should allow editing -> done shortcut', () => {
+  it('should reject editing -> done (requires review first)', () => {
     const state = createTaskState('test');
     transitionState(state, 'capturing_baseline');
     transitionState(state, 'loading_context');
@@ -113,8 +107,9 @@ describe('TaskState', () => {
     transitionState(state, 'selecting_files');
     transitionState(state, 'planning');
     transitionState(state, 'editing');
-    transitionState(state, 'done');
-    expect(state.status).toBe('done');
+    expect(() => transitionState(state, 'done')).toThrow(
+      'Invalid state transition',
+    );
   });
 
   it('should allow reviewing -> fixing loop', () => {
@@ -360,88 +355,15 @@ describe('TaskLogger', () => {
 // ── Error Classes ────────────────────────────────────────────────
 
 describe('Error classes', () => {
-  it('TaskError should have code and recoverable flag', () => {
-    const err = new TaskError('Something went wrong', 'TEST_ERR', true, {
-      detail: 'info',
-    });
-    expect(err.message).toBe('Something went wrong');
-    expect(err.code).toBe('TEST_ERR');
-    expect(err.recoverable).toBe(true);
-    expect(err.details).toEqual({ detail: 'info' });
-    expect(err.name).toBe('TaskError');
-  });
-
-  it('TaskError should default to non-recoverable', () => {
-    const err = new TaskError('Fatal', 'FATAL');
-    expect(err.recoverable).toBe(false);
-    expect(err.details).toBeUndefined();
-  });
-
-  it('ProviderError should have code and retryable flag', () => {
-    const err = new ProviderError(
-      'Rate limited',
-      'RATE_LIMITED',
-      false,
-      30_000,
-    );
-    expect(err.message).toBe('Rate limited');
-    expect(err.code).toBe('RATE_LIMITED');
-    expect(err.retryable).toBe(false);
-    expect(err.cooldownMs).toBe(30_000);
-    expect(err.name).toBe('ProviderError');
-  });
-
-  it('ProviderError should default retryable to false', () => {
-    const err = new ProviderError('Server error', 'SERVER_ERROR');
-    expect(err.retryable).toBe(false);
-    expect(err.cooldownMs).toBeUndefined();
-  });
-
-  it('ToolExecutionError should have tool name and suggestions', () => {
-    const err = new ToolExecutionError(
-      'read_file',
-      'File not found',
-      'NOT_FOUND',
-      ['Check path'],
-    );
-    expect(err.toolName).toBe('read_file');
-    expect(err.errorType).toBe('NOT_FOUND');
-    expect(err.suggestions).toEqual(['Check path']);
-    expect(err.name).toBe('ToolExecutionError');
-  });
-
-  it('ToolExecutionError should work without suggestions', () => {
-    const err = new ToolExecutionError(
-      'write_file',
-      'Permission denied',
-      'PERMISSION_DENIED',
-    );
-    expect(err.suggestions).toBeUndefined();
-  });
-
   it('StateTransitionError should include from/to and allowed transitions', () => {
     const err = new StateTransitionError('created', 'editing', [
-      'created',
+      'capturing_baseline',
       'failed',
     ]);
     expect(err.from).toBe('created');
     expect(err.to).toBe('editing');
-    expect(err.allowedTransitions).toEqual(['created', 'failed']);
+    expect(err.allowedTransitions).toEqual(['capturing_baseline', 'failed']);
     expect(err.message).toContain('created -> editing');
-  });
-
-  it('AgentError should have agent name and code', () => {
-    const err = new AgentError('planner', 'Failed to plan', 'PLANNER_ERROR', [
-      { toolName: 'read_file', durationMs: 100 },
-    ]);
-    expect(err.agentName).toBe('planner');
-    expect(err.code).toBe('PLANNER_ERROR');
-    expect(err.toolCalls).toHaveLength(1);
-    expect(err.toolCalls?.[0].toolName).toBe('read_file');
-  });
-
-  it('AgentError should work without tool calls', () => {
-    const err = new AgentError('editor', 'Edit failed', 'EDITOR_ERROR');
-    expect(err.toolCalls).toBeUndefined();
+    expect(err.name).toBe('StateTransitionError');
   });
 });

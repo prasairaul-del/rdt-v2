@@ -3,6 +3,7 @@ import type { ProviderRouter } from '../router/provider-router';
 import { listFilesTool } from '../tools/list-files';
 import { readFileTool } from '../tools/read-file';
 import { searchFilesTool } from '../tools/search-files';
+import { FileSelectionSchema } from './schemas';
 import type { AgentInput, AgentOutput, FileSelection } from './types';
 
 export interface FilePickerAgentConfig {
@@ -200,38 +201,32 @@ ${fileListStr}`,
           const first = text.indexOf('{');
           const last = text.lastIndexOf('}');
           if (first !== -1 && last > first) {
-            const parsed = JSON.parse(text.slice(first, last + 1)) as {
-              selectedFiles?: Array<{
-                path: string;
-                reason: string;
-                priority: string;
-              }>;
-            };
-            if (parsed.selectedFiles && parsed.selectedFiles.length > 0) {
-              const llmSelected = parsed.selectedFiles
-                .filter((sf) => knownFiles.includes(sf.path))
-                .map((sf) => ({
-                  path: sf.path,
-                  reason: sf.reason,
-                  priority:
-                    sf.priority === 'high' ||
-                    sf.priority === 'medium' ||
-                    sf.priority === 'low'
-                      ? (sf.priority as 'high' | 'medium' | 'low')
-                      : ('medium' as 'high' | 'medium' | 'low'),
-                }));
-              if (llmSelected.length > 0) {
-                selected.push(...llmSelected);
-                // Dedup by path
-                const uniqueSelected = Array.from(
-                  new Map(selected.map((item) => [item.path, item])).values(),
-                );
-                selected.length = 0;
-                selected.push(...uniqueSelected);
-                confidence = 0.8;
-                modelUsed = res.response.model;
-                providerUsed = res.response.provider;
+            try {
+              const raw = JSON.parse(text.slice(first, last + 1));
+              const validation = FileSelectionSchema.safeParse(raw);
+              if (validation.success && validation.data.files.length > 0) {
+                const llmSelected = validation.data.files
+                  .filter((sf) => knownFiles.includes(sf.path))
+                  .map((sf) => ({
+                    path: sf.path,
+                    reason: sf.reason,
+                    priority: sf.priority,
+                  }));
+                if (llmSelected.length > 0) {
+                  selected.push(...llmSelected);
+                  // Dedup by path
+                  const uniqueSelected = Array.from(
+                    new Map(selected.map((item) => [item.path, item])).values(),
+                  );
+                  selected.length = 0;
+                  selected.push(...uniqueSelected);
+                  confidence = 0.8;
+                  modelUsed = res.response.model;
+                  providerUsed = res.response.provider;
+                }
               }
+            } catch {
+              // Schema validation failed, fall back to heuristic
             }
           }
         }

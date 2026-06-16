@@ -9,8 +9,10 @@ import {
   symlinkSync,
   unlinkSync,
 } from 'node:fs';
+import { copyFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
+import type { RepoMap } from '../project-context/repo-map';
 import { scanRepo } from '../project-context/repo-scanner';
 import { cleanupIsolationArtifacts } from './process-isolation';
 
@@ -27,8 +29,9 @@ export class Sandbox {
 
   /**
    * Initialize the sandbox by copying source files and symlinking dependencies.
+   * @param repoMap Optional pre-scanned repo map to avoid redundant filesystem walks.
    */
-  async init(): Promise<void> {
+  async init(repoMap?: RepoMap): Promise<void> {
     if (existsSync(this.sandboxPath)) {
       await this.destroy();
     }
@@ -61,19 +64,35 @@ export class Sandbox {
       }
     }
 
-    // 2. Scan host and copy source files
-    const repoMap = scanRepo(this.hostPath);
-    for (const entry of repoMap.entries) {
+    // 2. Scan host and copy source files (parallel async for performance)
+    const resolvedRepoMap = repoMap ?? scanRepo(this.hostPath);
+
+    // Pre-compute unique directories to create
+    const dirsToCreate = new Set<string>();
+    const filesToCopy: Array<{ host: string; sandbox: string }> = [];
+
+    for (const entry of resolvedRepoMap.entries) {
       const hostFilePath = join(this.hostPath, entry.path);
       const sandboxFilePath = join(this.sandboxPath, entry.path);
 
       if (entry.type === 'dir') {
-        mkdirSync(sandboxFilePath, { recursive: true });
+        dirsToCreate.add(sandboxFilePath);
       } else {
-        // Ensure parent directory exists
-        mkdirSync(dirname(sandboxFilePath), { recursive: true });
-        copyFileSync(hostFilePath, sandboxFilePath);
+        dirsToCreate.add(dirname(sandboxFilePath));
+        filesToCopy.push({ host: hostFilePath, sandbox: sandboxFilePath });
       }
+    }
+
+    // Create all directories in parallel
+    await Promise.all(
+      Array.from(dirsToCreate).map((dir) => mkdir(dir, { recursive: true })),
+    );
+
+    // Copy all files in parallel with concurrency limit
+    const CONCURRENCY = 32;
+    for (let i = 0; i < filesToCopy.length; i += CONCURRENCY) {
+      const batch = filesToCopy.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map((f) => copyFile(f.host, f.sandbox)));
     }
   }
 

@@ -40,6 +40,12 @@ export class TaskLogStore extends SqliteStore {
         error_message TEXT
       )
     `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_task_logs_started_at ON task_logs(started_at DESC)
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_task_logs_status ON task_logs(status)
+    `);
   }
 
   createLog(request: string, id?: string): TaskLog {
